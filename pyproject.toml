@@ -1,0 +1,58 @@
+[project]
+name = "disco-executors"
+description = ""
+authors = [{ name = "Jonas Dedden", email = "university@jonas-dedden.de" }]
+readme = "README.md"
+dynamic = ["version"]
+requires-python = ">=3.12"
+
+dependencies = [
+    "typing_extensions",
+]
+
+[project.optional-dependencies]
+dask = ["dask[distributed]"]
+ray = ["ray"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.5.4",
+    "pytest>=8.4.0",
+    "pytest-pretty>=1.2.0",
+    "mypy>=1.11.0",
+    "hypothesis>=6.151.10",
+    "pytest-xdist>=3.8.0",
+]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/disco"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+fix = true
+unsafe-fixes = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B", "I", "RET", "SIM", "PLC", "PLE", "UP"]
+ignore = ["B905", "E501", "RET505", "RET506"]
+
+[tool.ruff.lint.isort]
+known-local-folder = ["disco.executors"]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
+
+[tool.mypy]
+mypy_path = "src"
+strict = true
+explicit_package_bases = true

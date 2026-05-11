@@ -1,0 +1,49 @@
+line-length = 120
+target-version = "py312"
+fix = true
+unsafe-fixes = true
+
+[lint]
+select = ["ALL"]
+ignore = [
+    # ToDo
+    "FIX002",
+    "TD002",
+    "TD003",
+    # Exception formatting
+    "EM",
+    "TRY003",
+    "BLE001", # do not catch blind exception
+    # Formatting
+    "E501", # line too long
+    "COM812", # trailing comma
+    # Docstrings
+    "D",
+    # Miscellaneous
+    "ERA001", # commented out code
+    "S101", # use of `assert`
+    "ARG002", # unused args
+    "C901", # too complex
+    "PLR0913", # too-many-arguments
+    "PLR0912", # too-many-branches
+    "PLR0915", # too-many-statements
+    "SLF001", # private member accessed
+    "RUF023", # sorted `__slots__`
+]
+
+[lint.per-file-ignores]
+"tests_revamp/**.py" = [
+    "PLR2004", # Magic values
+    "PLW0127", # Self-assignment
+    "ANN401", # Allowed Any
+    "FBT001", # Positional boolean
+    "FBT003", # Positional boolean
+]
+
+[lint.isort]
+known-local-folder = ["disco.executors"]
+required-imports = ["from __future__ import annotations"]
+
+[lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
