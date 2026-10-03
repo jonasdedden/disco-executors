@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -11,7 +11,7 @@ def register_counter(root: Path, counter_key: str) -> None:
     (root / counter_key).mkdir()
 
 
-def raise_counter(root: Path, counter_key: str, *_: object) -> int:
+def raise_counter(root: Path, counter_key: str, *_: Any) -> int:
     """Atomically increment the counter and return its new value, safe across threads and processes.
 
     Each counter is a directory; an increment claims the next free file name `1`, `2`, ... via `O_CREAT | O_EXCL`, which

@@ -1,6 +1,6 @@
 # Ray's / Dask's APIs are only partially annotated, so values derived from them are `Unknown` / `Any` to pyright.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
-# pyright: reportUnknownParameterType=false, reportUnknownLambdaType=false, reportAny=false
+# pyright: reportUnknownParameterType=false, reportUnknownLambdaType=false
 
 from __future__ import annotations
 
@@ -101,10 +101,8 @@ class _SentinelRemoteFunction[R](Protocol):
     this spells out the shape; it's typed as a tuple so that unpacking keeps both element types.
     """
 
-    def options(self, **task_options: object) -> _SentinelRemoteFunction[R]: ...
-    def remote(
-        self, *args: object, **kwargs: object
-    ) -> tuple[ray.ObjectRef[_RaySuccessSentinel], ray.ObjectRef[R]]: ...
+    def options(self, **task_options: Any) -> _SentinelRemoteFunction[R]: ...
+    def remote(self, *args: Any, **kwargs: Any) -> tuple[ray.ObjectRef[_RaySuccessSentinel], ray.ObjectRef[R]]: ...
 
 
 class RayFuture[R](Future[R]):
@@ -146,14 +144,14 @@ class RayFuture[R](Future[R]):
             return None
 
 
-EMPTY_DICT: Mapping[str, object] = MappingProxyType({})
+EMPTY_DICT: Mapping[str, Any] = MappingProxyType({})
 
 
 class RayKwargs(NamedTuple):
     # Additional `kwargs` for `remote_func = ray.remote([func], **kwargs)`
-    func_remote_kwargs: Mapping[str, object] = EMPTY_DICT
+    func_remote_kwargs: Mapping[str, Any] = EMPTY_DICT
     # Additional `kwargs` for `obj_refs = remote_func.options(**kwargs).remote([args])`
-    func_options_kwargs: Mapping[str, object] = EMPTY_DICT
+    func_options_kwargs: Mapping[str, Any] = EMPTY_DICT
     # Timeout for `results = ray.get(obj_refs, timeout=timeout)`
     get_timeout: float | None = None
     # Timeout for `done, pending = ray.wait(obj_refs, timeout=timeout)`
@@ -243,11 +241,9 @@ class RayExecutor(Executor):
     def _setup_func[**P, R](
         func: Callable[P, R],
         retries: int | RetryConfig | None = None,
-        func_options_args: Mapping[str, object] | None = None,
+        func_options_args: Mapping[str, Any] | None = None,
     ) -> _SentinelRemoteFunction[R]:
-        # Ray accepts more than its annotated `ray.remote(...)` signature declares (e.g. `name`, or `retry_exceptions` as a
-        # list), so these options are passed through untyped.
-        options: dict[str, Any] = {}  # pyright: ignore[reportExplicitAny]
+        options: dict[str, Any] = {}
 
         if retries:
             if isinstance(retries, RetryConfig):
@@ -272,7 +268,7 @@ class RayExecutor(Executor):
             options |= func_options_args
 
         # Ray's annotations pick the remote-function type by the function's arity and can't express `num_returns=2`.
-        remote_func = cast("object", ray.remote(**options)(_wrap_with_exception_logging(func)))
+        remote_func = cast("Any", ray.remote(**options)(_wrap_with_exception_logging(func)))
         return cast("_SentinelRemoteFunction[R]", remote_func)
 
     @override
@@ -282,7 +278,7 @@ class RayExecutor(Executor):
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> RayFuture[R] | R:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -321,7 +317,7 @@ class RayExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Sequence[R | RayFuture[R] | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -467,7 +463,7 @@ class RayExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Iterator[R | RayFuture[R] | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):

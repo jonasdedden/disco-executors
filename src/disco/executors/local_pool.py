@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 from collections import deque
-from typing import TYPE_CHECKING, Literal, assert_never, override
+from typing import TYPE_CHECKING, Any, Literal, assert_never, override
 
 from .base import (
     ExceptionConfig,
@@ -117,7 +117,7 @@ class LocalPoolExecutor(Executor):
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> LocalPoolFuture[R] | R:
         del executor_kwargs  # unused; the pool's configuration lives on the pool instance itself
         func = _prepare_func(w.func, retry_config)
@@ -142,7 +142,7 @@ class LocalPoolExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Sequence[R | LocalPoolFuture[R] | Exception]:
         del executor_kwargs
         func, first_args, args, kwargs = w.func, w.first_args, w.args, w.kwargs
@@ -215,7 +215,7 @@ class LocalPoolExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Iterator[R | LocalPoolFuture[R] | Exception]:
         del executor_kwargs
         func, first_args, args, kwargs = w.func, w.first_args, w.args, w.kwargs

@@ -4,6 +4,7 @@ import enum
 from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
+    Any,
     Concatenate,
     Literal,
     NamedTuple,
@@ -99,7 +100,7 @@ class Executor(ABC):
         *,
         result_config: Literal[ResultConfig.RESULT] = ...,
         retry_config: int | RetryConfig | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[P, R]: ...
 
     @overload
@@ -110,7 +111,7 @@ class Executor(ABC):
         *,
         result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED],
         retry_config: int | RetryConfig | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[P, Future[R]]: ...
 
     @overload
@@ -121,7 +122,7 @@ class Executor(ABC):
         *,
         result_config: ResultConfig = ...,
         retry_config: int | RetryConfig | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[P, Future[R] | R]: ...
 
     def submit[**P, R](
@@ -131,7 +132,7 @@ class Executor(ABC):
         *,
         result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
         retry_config: int | RetryConfig | None = None,
-        executor_kwargs: Mapping[type[Executor], object] | None = None,
+        executor_kwargs: Mapping[type[Executor], Any] | None = None,
     ) -> Callable[P, Future[R] | R]:
         """Bind `func` and the execution options into a callable that submits a single task.
 
@@ -203,7 +204,7 @@ class Executor(ABC):
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Sequence[R]]: ...
 
     @overload
@@ -216,7 +217,7 @@ class Executor(ABC):
         exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Sequence[R | Exception]]: ...
 
     @overload
@@ -229,7 +230,7 @@ class Executor(ABC):
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Sequence[Future[R]]]: ...
 
     @overload
@@ -242,7 +243,7 @@ class Executor(ABC):
         exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Sequence[Future[R] | Exception]]: ...
 
     @overload
@@ -255,7 +256,7 @@ class Executor(ABC):
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Sequence[Future[R]] | Sequence[R]]: ...
 
     @overload
@@ -268,7 +269,7 @@ class Executor(ABC):
         exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Sequence[R | Exception] | Sequence[Future[R] | Exception]]: ...
 
     @overload
@@ -281,7 +282,7 @@ class Executor(ABC):
         exception_config: ExceptionConfig = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[
         Concatenate[Iterable[T], P],
         Sequence[Future[R]] | Sequence[R] | Sequence[R | Exception] | Sequence[Future[R] | Exception],
@@ -296,7 +297,7 @@ class Executor(ABC):
         exception_config: ExceptionConfig = DEFAULT_EXCEPTION_CONFIG,
         retry_config: int | RetryConfig | None = None,
         max_pending_tasks: int | None = DEFAULT_MAX_PENDING_TASKS,
-        executor_kwargs: Mapping[type[Executor], object] | None = None,
+        executor_kwargs: Mapping[type[Executor], Any] | None = None,
     ) -> Callable[
         Concatenate[Iterable[T], P],
         Sequence[R | Future[R] | Exception],
@@ -413,7 +414,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Iterator[R]]: ...
 
     @overload
@@ -427,7 +428,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Iterator[R | Exception]]: ...
 
     @overload
@@ -441,7 +442,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Iterator[Future[R]]]: ...
 
     @overload
@@ -455,7 +456,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Iterator[Future[R] | Exception]]: ...
 
     @overload
@@ -469,7 +470,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Iterator[Future[R]] | Iterator[R]]: ...
 
     @overload
@@ -483,7 +484,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], object] | None = ...,
+        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
     ) -> Callable[Concatenate[Iterable[T], P], Iterator[R | Exception] | Iterator[Future[R] | Exception]]: ...
 
     def map_lazy[T, **P, R](
@@ -496,7 +497,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None = None,
         ordered: bool = True,
         max_pending_tasks: int | None = DEFAULT_MAX_PENDING_TASKS,
-        executor_kwargs: Mapping[type[Executor], object] | None = None,
+        executor_kwargs: Mapping[type[Executor], Any] | None = None,
     ) -> Callable[
         Concatenate[Iterable[T], P],
         Iterator[R | Future[R] | Exception],
@@ -605,7 +606,7 @@ class Executor(ABC):
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Future[R] | R: ...
 
     @abstractmethod
@@ -617,7 +618,7 @@ class Executor(ABC):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Sequence[R | Future[R] | Exception]: ...
 
     @abstractmethod
@@ -630,5 +631,5 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Iterator[R | Future[R] | Exception]: ...

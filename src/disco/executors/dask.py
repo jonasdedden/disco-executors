@@ -1,6 +1,6 @@
 # Ray's / Dask's APIs are only partially annotated, so values derived from them are `Unknown` / `Any` to pyright.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
-# pyright: reportUnknownParameterType=false, reportUnknownLambdaType=false, reportAny=false
+# pyright: reportUnknownParameterType=false, reportUnknownLambdaType=false
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 _MAX_VALUE_LENGTH = 150
 
 
-def _format_value(value: object, max_value_length: int = _MAX_VALUE_LENGTH) -> str:
+def _format_value(value: Any, max_value_length: int = _MAX_VALUE_LENGTH) -> str:
     """Short, human-readable rendering of `value` for use in a Dask task key.
 
     Long reprs get truncated to a head/tail pair so the key stays bounded while still being
@@ -42,7 +42,7 @@ def _format_value(value: object, max_value_length: int = _MAX_VALUE_LENGTH) -> s
     return full
 
 
-def _generate_key(func_name: str, base_hash: str, arg: object, idx: int) -> str:
+def _generate_key(func_name: str, base_hash: str, arg: Any, idx: int) -> str:
     """Deterministic, unique Dask task key.
 
     Giving Dask an explicit key avoids its default tokenization of the full arg tuple, which is
@@ -177,7 +177,7 @@ class DaskExecutor(Executor):
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> DaskFuture[R] | R:
         del executor_kwargs
         original_func = w.func
@@ -185,10 +185,10 @@ class DaskExecutor(Executor):
         # that do not support indexing or iteration. Re-bind to plain `tuple` / `dict` so the
         # helper calls below can work with them uniformly.
         # `w.args` / `w.kwargs` are ParamSpec-typed; rebind via star-unpack so mypy sees
-        # plain `tuple[object, ...]` / `dict[str, Any]` that support indexing and iteration.
+        # plain `tuple[Any, ...]` / `dict[str, Any]` that support indexing and iteration.
         # mypy can't statically recognise `**P.kwargs` as satisfying `SupportsKeysAndGetItem`
         # even though it always does at runtime, so the dict unpack takes a narrow ignore.
-        shared_args: tuple[object, ...] = (*w.args,)
+        shared_args: tuple[Any, ...] = (*w.args,)
         shared_kwargs: dict[str, Any] = {**w.kwargs}  # type: ignore[dict-item]
         del w
 
@@ -227,17 +227,17 @@ class DaskExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Sequence[R | DaskFuture[R] | Exception]:
         del executor_kwargs
         original_func = w.func
-        first_args: list[object] = list(w.first_args)
+        first_args: list[Any] = list(w.first_args)
         # Rebind ParamSpec-typed attributes to plain containers so helpers can work with them.
         # `w.args` / `w.kwargs` are ParamSpec-typed; rebind via star-unpack so mypy sees
-        # plain `tuple[object, ...]` / `dict[str, Any]` that support indexing and iteration.
+        # plain `tuple[Any, ...]` / `dict[str, Any]` that support indexing and iteration.
         # mypy can't statically recognise `**P.kwargs` as satisfying `SupportsKeysAndGetItem`
         # even though it always does at runtime, so the dict unpack takes a narrow ignore.
-        shared_args: tuple[object, ...] = (*w.args,)
+        shared_args: tuple[Any, ...] = (*w.args,)
         shared_kwargs: dict[str, Any] = {**w.kwargs}  # type: ignore[dict-item]
         del w
         total = len(first_args)
@@ -331,16 +331,16 @@ class DaskExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Iterator[R | DaskFuture[R] | Exception]:
         del executor_kwargs
         original_func = w.func
-        first_args: list[object] = list(w.first_args)
+        first_args: list[Any] = list(w.first_args)
         # `w.args` / `w.kwargs` are ParamSpec-typed; rebind via star-unpack so mypy sees
-        # plain `tuple[object, ...]` / `dict[str, Any]` that support indexing and iteration.
+        # plain `tuple[Any, ...]` / `dict[str, Any]` that support indexing and iteration.
         # mypy can't statically recognise `**P.kwargs` as satisfying `SupportsKeysAndGetItem`
         # even though it always does at runtime, so the dict unpack takes a narrow ignore.
-        shared_args: tuple[object, ...] = (*w.args,)
+        shared_args: tuple[Any, ...] = (*w.args,)
         shared_kwargs: dict[str, Any] = {**w.kwargs}  # type: ignore[dict-item]
         del w
         total = len(first_args)
@@ -444,9 +444,9 @@ class DaskExecutor(Executor):
     def _prepare_map_submission[**P, R](
         self,
         original_func: Callable[..., R],
-        first_args: list[object],
-        shared_args: tuple[object, ...],
-        shared_kwargs: Mapping[str, object],
+        first_args: list[Any],
+        shared_args: tuple[Any, ...],
+        shared_kwargs: Mapping[str, Any],
         retry_config: int | RetryConfig | None,
     ) -> tuple[Callable[..., R], int, list[str]]:
         """Shared setup for `map` and `map_lazy`: apply the retry wrapper, bake kwargs, and
@@ -468,8 +468,8 @@ class DaskExecutor(Executor):
     def _submit_and_drain[R](
         self,
         submit_func: Callable[..., R],
-        first_args: list[object],
-        shared_args: tuple[object, ...],
+        first_args: list[Any],
+        shared_args: tuple[Any, ...],
         keys: list[str],
         dask_retries: int,
         max_pending_tasks: int | None,
@@ -517,8 +517,8 @@ class DaskExecutor(Executor):
     def _submit_future_pending[R](
         self,
         submit_func: Callable[..., R],
-        first_args: list[object],
-        shared_args: tuple[object, ...],
+        first_args: list[Any],
+        shared_args: tuple[Any, ...],
         keys: list[str],
         dask_retries: int,
         max_pending_tasks: int | None,
@@ -574,8 +574,8 @@ class DaskExecutor(Executor):
     def _map_lazy_future_pending[R](
         self,
         submit_func: Callable[..., R],
-        first_args: list[object],
-        shared_args: tuple[object, ...],
+        first_args: list[Any],
+        shared_args: tuple[Any, ...],
         keys: list[str],
         dask_retries: int,
         max_pending_tasks: int | None,

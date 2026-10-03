@@ -67,13 +67,13 @@ ignore = [
     "PLR0915", # too-many-statements
     "SLF001", # private member accessed
     "RUF023", # sorted `__slots__`
+    "ANN401", # `Any` is used deliberately in this codebase
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**.py" = [
     "PLR2004", # Magic values
     "PLW0127", # Self-assignment
-    "ANN401", # Allowed Any
     "FBT001", # Positional boolean
     "FBT003", # Positional boolean
 ]
@@ -100,6 +100,9 @@ failOnWarnings = true
 enableTypeIgnoreComments = true
 # mypy's `warn_unused_ignores` (part of `--strict`) already polices those, and some are needed by mypy only.
 reportUnnecessaryTypeIgnoreComment = false
+# `Any` is used deliberately in this codebase.
+reportAny = false
+reportExplicitAny = false
 
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
