@@ -167,7 +167,7 @@ def _retry_local_future[R](
             case _DoneWrapper(result=_):
                 match result_config:
                     case ResultConfig.RESULT:
-                        return value
+                        return _DoneWrapper(value.result)
                     case ResultConfig.FUTURE_PENDING | ResultConfig.FUTURE_COMPLETED:
                         return _DoneWrapper(fut)
                     case _:
@@ -229,10 +229,10 @@ class LocalExecutor(Executor):
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception]:
+    ) -> Sequence[R | Future[R] | Exception]:
         match exception_config:
             case ExceptionConfig.RAISE_EAGERLY:
-                return [  # type: ignore[return-value] # all items are the same variant, but mypy can't narrow
+                return [
                     self._submit(
                         SingleWrap(w.func, arg, *w.args, **w.kwargs),
                         result_config=result_config,
@@ -289,7 +289,7 @@ class LocalExecutor(Executor):
                         )
                     except Exception as exc:
                         results.append(exc)
-                return results  # type: ignore[return-value] # narrowed by the overload on exception_config
+                return results
             case _:
                 assert_never(exception_config)
 
@@ -303,7 +303,7 @@ class LocalExecutor(Executor):
         ordered: bool,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
+    ) -> Iterator[R | Future[R] | Exception]:
         # LocalExecutor is sequential, so ordered/max_pending_tasks have no effect.
         for arg in w.first_args:
             match exception_config:

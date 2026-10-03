@@ -297,7 +297,7 @@ class Executor(ABC):
         executor_kwargs: Mapping[type[Executor], Any] | None = None,
     ) -> Callable[
         Concatenate[Iterable[T], P],
-        Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception],
+        Sequence[R | Future[R] | Exception],
     ]:
         """Bind `func` and the execution options into a callable that maps `func` over an iterable in parallel.
 
@@ -388,7 +388,7 @@ class Executor(ABC):
 
         def map_call(
             first_args: Iterable[T], /, *args: P.args, **kwargs: P.kwargs
-        ) -> Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception]:
+        ) -> Sequence[R | Future[R] | Exception]:
             return self._map(
                 MultipleWrap(func, first_args, *args, **kwargs),
                 result_config=result_config,
@@ -497,7 +497,7 @@ class Executor(ABC):
         executor_kwargs: Mapping[type[Executor], Any] | None = None,
     ) -> Callable[
         Concatenate[Iterable[T], P],
-        Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception],
+        Iterator[R | Future[R] | Exception],
     ]:
         """Bind `func` and the execution options into a callable that lazily maps `func` over an iterable.
 
@@ -580,7 +580,7 @@ class Executor(ABC):
 
         def map_lazy_call(
             first_args: Iterable[T], /, *args: P.args, **kwargs: P.kwargs
-        ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
+        ) -> Iterator[R | Future[R] | Exception]:
             return self._map_lazy(
                 MultipleWrap(func, first_args, *args, **kwargs),
                 result_config=result_config,
@@ -616,7 +616,7 @@ class Executor(ABC):
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception]: ...
+    ) -> Sequence[R | Future[R] | Exception]: ...
 
     @abstractmethod
     def _map_lazy[T, **P, R](
@@ -629,4 +629,4 @@ class Executor(ABC):
         ordered: bool,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]: ...
+    ) -> Iterator[R | Future[R] | Exception]: ...

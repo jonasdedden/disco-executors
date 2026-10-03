@@ -131,9 +131,7 @@ class LocalPoolExecutor(Executor):
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> (
-        Sequence[LocalPoolFuture[R]] | Sequence[LocalPoolFuture[R] | Exception] | Sequence[R] | Sequence[R | Exception]
-    ):
+    ) -> Sequence[R | LocalPoolFuture[R] | Exception]:
         del executor_kwargs
         func, first_args, args, kwargs = w.func, w.first_args, w.args, w.kwargs
         del w
@@ -205,7 +203,7 @@ class LocalPoolExecutor(Executor):
         ordered: bool,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
+    ) -> Iterator[R | LocalPoolFuture[R] | Exception]:
         del executor_kwargs
         func, first_args, args, kwargs = w.func, w.first_args, w.args, w.kwargs
         del w
