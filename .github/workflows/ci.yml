@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Fail instead of silently re-locking when `uv.lock` is out of date with `pyproject.toml`.
+  UV_LOCKED: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: Lockfile is up to date
+        run: uv lock --check
+      # `--no-fix` matters: the ruff config sets `fix = true`, which would otherwise fix the code and pass.
+      - name: ruff check
+        run: uv run ruff check --no-fix --output-format=github
+      - name: ruff format
+        run: uv run ruff format --check --diff
+
+  typecheck:
+    name: Type check (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-extras
+      - name: mypy --strict
+        run: uv run --no-sync mypy
+      - name: basedpyright
+        run: uv run --no-sync basedpyright
+
+  test:
+    name: Test (${{ matrix.executor }}, Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+        executor: [local, thread, process, dask, ray]
+        # Each test is marked with its executor (see `tests/conftest.py`); the `local` job also runs the
+        # executor-independent tests, so every test runs in exactly one job.
+        include:
+          - executor: local
+            marker: "not (thread or process or dask or ray)"
+          - executor: thread
+            marker: thread
+          - executor: process
+            marker: process
+          - executor: dask
+            marker: dask
+          - executor: ray
+            marker: ray
+    env:
+      # Read by `tests/conftest.py` to size the thread/process pools and the Dask/Ray clusters; GitHub's Linux
+      # runners have 4 vCPUs.
+      KUBERNETES_CPU_REQUEST: "4"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-extras
+      - name: pytest
+        run: uv run --no-sync pytest -m "${{ matrix.marker }}" --durations=10
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `uv-dynamic-versioning` derives the version from git tags and history.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10
+      - run: uv build
+      - name: Check package metadata
+        run: uvx twine check --strict dist/*

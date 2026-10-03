@@ -22,6 +22,7 @@ dev = [
     "mypy>=1.11.0",
     "hypothesis>=6.151.10",
     "pytest-xdist>=3.8.0",
+    "basedpyright>=1.40.1",
 ]
 
 [build-system]
@@ -86,6 +87,13 @@ required-imports = ["from __future__ import annotations"]
 keep-runtime-typing = true
 
 [tool.mypy]
+files = ["src", "tests"]
 mypy_path = "src"
 strict = true
 explicit_package_bases = true
+
+[tool.basedpyright]
+include = ["src", "tests"]
+# `mypy --strict` is the strict gate. Pyright's strict modes mostly flag Ray's/Dask's partially untyped APIs, so this
+# runs in pyright's standard mode, as a second checker with different inference.
+typeCheckingMode = "standard"
