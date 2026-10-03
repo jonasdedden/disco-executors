@@ -24,10 +24,9 @@ class Future[R](Protocol):
     def exception(self, timeout: float | None = None) -> Exception | None: ...
 
 
-# The classes `SingleWrap` and `MultipleWrap` are needed because as soon as a method has `ParamSpec` `*args` or
-# `**kwargs`, it can't have any other `kwargs` anymore, as `*args: P.args`, `**kwargs: P.kwargs` by design always have
-# to be directly besides each other. This means the `Executor` implementations consume the function and its arguments
-# through a typed wrapper, but all other arguments (such as `result_config`) can be normal `kwargs`.
+# `SingleWrap` and `MultipleWrap` carry one call's function and arguments from the callables returned by
+# `Executor.submit` / `Executor.map` / `Executor.map_lazy` to the backend hooks, keeping the `ParamSpec` link between
+# `func` and its arguments intact.
 
 # These are bare Python classes as it's impossible to annotate the `args` or `kwargs` types in a dataclass or NamedTuple
 # https://github.com/python/typing/issues/1252
@@ -57,19 +56,6 @@ class MultipleWrap[T, **P, R]:
         self.first_args = first_args
         self.args = args
         self.kwargs = kwargs
-
-
-def wrap[**P, R](func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> SingleWrap[P, R]:
-    return SingleWrap(func, *args, **kwargs)
-
-
-def mwrap[T, **P, R](
-    func: Callable[Concatenate[T, P], R],
-    first_args: Iterable[T],
-    *args: P.args,
-    **kwargs: P.kwargs,
-) -> MultipleWrap[T, P, R]:
-    return MultipleWrap(func, first_args, *args, **kwargs)
 
 
 class RetryConfig(NamedTuple):
@@ -106,52 +92,58 @@ class Executor(ABC):
     @overload
     def submit[**P, R](
         self,
-        w: SingleWrap[P, R],
+        func: Callable[P, R],
+        /,
         *,
         result_config: Literal[ResultConfig.RESULT] = ...,
         retry_config: int | RetryConfig | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> R: ...
+    ) -> Callable[P, R]: ...
 
     @overload
     def submit[**P, R](
         self,
-        w: SingleWrap[P, R],
+        func: Callable[P, R],
+        /,
         *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
+        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED],
         retry_config: int | RetryConfig | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Future[R]: ...
+    ) -> Callable[P, Future[R]]: ...
 
     @overload
     def submit[**P, R](
         self,
-        w: SingleWrap[P, R],
+        func: Callable[P, R],
+        /,
         *,
         result_config: ResultConfig = ...,
         retry_config: int | RetryConfig | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Future[R] | R: ...
+    ) -> Callable[P, Future[R] | R]: ...
 
-    @abstractmethod
     def submit[**P, R](
         self,
-        w: SingleWrap[P, R],
+        func: Callable[P, R],
+        /,
         *,
         result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
         retry_config: int | RetryConfig | None = None,
         executor_kwargs: Mapping[type[Executor], Any] | None = None,
-    ) -> Future[R] | R:
-        """Submit a single task for execution.
+    ) -> Callable[P, Future[R] | R]:
+        """Bind `func` and the execution options into a callable that submits a single task.
 
-        Executes the function wrapped in `w` and returns either the computed result
-        directly or a `Future` representing the (possibly still-running) computation,
-        depending on `result_config`.
+        The returned callable accepts exactly `func`'s arguments, e.g.
+        `executor.submit(func, retry_config=3)(1, b=2)` runs `func(1, b=2)` as a task.
+        Calling it executes `func` and returns either the computed result directly or a
+        `Future` representing the (possibly still-running) computation, depending on
+        `result_config`. Nothing runs before it is called, and it can be called any
+        number of times.
 
         Args:
-            w: A `SingleWrap` bundling the function to execute together with its
-                positional and keyword arguments.  Created via `wrap(func, *args, **kwargs)`.
-            result_config: Controls what is returned to the caller.
+            func: The function to execute. Its arguments are passed to the returned
+                callable, so they never clash with the options below.
+            result_config: Controls what the returned callable returns.
                 * `ResultConfig.RESULT` (default) — blocks until the function completes
                   and returns the value of type `R` directly.
                 * `ResultConfig.FUTURE_PENDING` — returns a `Future[R]` immediately.
@@ -160,8 +152,8 @@ class Executor(ABC):
                   `future.result()` will include up to your specified number of retries.
                 * `ResultConfig.FUTURE_COMPLETED` — returns a `Future[R]` that is
                   guaranteed to have completed successfully. If the task raised an
-                  exception (even after retries), the exception is raised from this method
-                  rather than deferred to the future.
+                  exception (even after retries), the exception is raised from the returned
+                  callable rather than deferred to the future.
             retry_config: Configures automatic retries for failed tasks.
                 * `None` (default) — no retries; a failure raises immediately (or is
                   surfaced through the future, depending on `result_config`).
@@ -179,119 +171,142 @@ class Executor(ABC):
                 is not present in the mapping.  `None` (default) passes no extra options.
 
         Returns:
-            The function's return value `R` when `result_config` is `RESULT`, or a
-            `Future[R]` when `result_config` is `FUTURE_PENDING` or
-            `FUTURE_COMPLETED`.
+            A callable with `func`'s parameters. It returns `func`'s return value `R`
+            when `result_config` is `RESULT`, or a `Future[R]` when `result_config` is
+            `FUTURE_PENDING` or `FUTURE_COMPLETED`.
 
-        Raises:
-            Exception: Any exception raised by the wrapped function, after exhausting
-                retries (if configured). The exact delivery depends on `result_config`:
-                for `RESULT` and `FUTURE_COMPLETED` the exception is raised from this
-                method; for `FUTURE_PENDING` it is deferred to `future.result()` /
-                `future.exception()`.
+            Calling it raises any exception raised by `func`, after exhausting retries
+            (if configured). The exact delivery depends on `result_config`: for `RESULT`
+            and `FUTURE_COMPLETED` the exception is raised from the call; for
+            `FUTURE_PENDING` it is deferred to `future.result()` / `future.exception()`.
         """
-        ...
+
+        def submit_call(*args: P.args, **kwargs: P.kwargs) -> Future[R] | R:
+            return self._submit(
+                SingleWrap(func, *args, **kwargs),
+                result_config=result_config,
+                retry_config=retry_config,
+                executor_kwargs=executor_kwargs,
+            )
+
+        return submit_call
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: Literal[ResultConfig.RESULT] = ...,
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[R]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Sequence[R]]: ...
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: Literal[ResultConfig.RESULT] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
+        exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[R | Exception]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Sequence[R | Exception]]: ...
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
+        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED],
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[Future[R]]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Sequence[Future[R]]]: ...
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED],
         exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[Future[R] | Exception]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Sequence[Future[R] | Exception]]: ...
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = ...,
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[Future[R]] | Sequence[R]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Sequence[Future[R]] | Sequence[R]]: ...
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
+        exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[R | Exception] | Sequence[Future[R] | Exception]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Sequence[R | Exception] | Sequence[Future[R] | Exception]]: ...
 
     @overload
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = ...,
         exception_config: ExceptionConfig = ...,
         retry_config: int | RetryConfig | None = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[Future[R]] | Sequence[R] | Sequence[R | Exception] | Sequence[Future[R] | Exception]: ...
+    ) -> Callable[
+        Concatenate[Iterable[T], P],
+        Sequence[Future[R]] | Sequence[R] | Sequence[R | Exception] | Sequence[Future[R] | Exception],
+    ]: ...
 
-    @abstractmethod
     def map[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
         exception_config: ExceptionConfig = DEFAULT_EXCEPTION_CONFIG,
         retry_config: int | RetryConfig | None = None,
         max_pending_tasks: int | None = DEFAULT_MAX_PENDING_TASKS,
         executor_kwargs: Mapping[type[Executor], Any] | None = None,
-    ) -> Sequence[Future[R]] | Sequence[R] | Sequence[R | Exception] | Sequence[Future[R] | Exception]:
-        """Map a function over an iterable of first arguments, executing tasks in parallel.
+    ) -> Callable[
+        Concatenate[Iterable[T], P],
+        Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception],
+    ]:
+        """Bind `func` and the execution options into a callable that maps `func` over an iterable in parallel.
 
-        For each value `t` in `w.first_args`, calls `w.func(t, *w.args, **w.kwargs)`
-        as a separate task.  Results are always returned in the same order as the input
-        iterable, regardless of the order in which tasks complete.
+        The returned callable takes an iterable of first arguments followed by all of
+        `func`'s remaining arguments, e.g. `executor.map(func, retry_config=3)(items, b=2)`
+        calls `func(t, b=2)` as a separate task for each `t` in `items`.  Results are always
+        returned in the same order as the input iterable, regardless of the order in which
+        tasks complete.  Nothing runs before the callable is called, and it can be called
+        any number of times.
 
         Submissions are throttled by `max_pending_tasks` to avoid overwhelming the
         executor's scheduler.  Results are retrieved inline as tasks complete, keeping
@@ -299,9 +314,9 @@ class Executor(ABC):
         as their value has been collected.
 
         Args:
-            w: A `MultipleWrap` bundling the function, the iterable of first arguments
-                to fan out over, and any additional shared positional/keyword arguments.
-                Created via `mwrap(func, first_args, *args, **kwargs)`.
+            func: The function to fan out. Its first parameter receives one element of the
+                iterable per task; its remaining arguments are passed to the returned
+                callable and shared across tasks.
             result_config: Controls what is returned for each task.
                 * `ResultConfig.RESULT` (default) — blocks until all tasks complete and
                   returns a `Sequence[R]` of computed values in input order.
@@ -311,8 +326,8 @@ class Executor(ABC):
                   implicitly when `future.result()` is called.
                 * `ResultConfig.FUTURE_COMPLETED` — returns a `Sequence[Future[R]]`
                   where every future is guaranteed to have completed successfully.  If any
-                  task failed (even after retries), an exception is raised from this method
-                  rather than deferred to the futures.
+                  task failed (even after retries), an exception is raised from the returned
+                  callable rather than deferred to the futures.
             exception_config: Controls how task exceptions are surfaced.  Only relevant
                 when `result_config` is `RESULT` or `FUTURE_COMPLETED` (for
                 `FUTURE_PENDING`, exceptions are always deferred to the individual
@@ -328,7 +343,7 @@ class Executor(ABC):
                 * `ExceptionConfig.RETURN` — waits for all tasks to finish and returns a
                   sequence in which each failed task appears as an `Exception` instance
                   inline with the successful results (or their futures). Nothing is
-                  raised from the method itself. Useful when the caller wants to decide
+                  raised from the call itself. Useful when the caller wants to decide
                   per-item how to handle failures.
             retry_config: Configures automatic retries for failed tasks.
                 * `None` (default) — no retries; a failure is surfaced according to
@@ -341,7 +356,7 @@ class Executor(ABC):
                   part of the retried exceptions, even when you supply an empty list
                   in `RetryConfig.exceptions`.
             max_pending_tasks: Maximum number of tasks that may be submitted but not yet
-                completed at any point in time.  When this limit is reached, the method
+                completed at any point in time.  When this limit is reached, the call
                 waits for some tasks to complete before submitting more.  This prevents
                 overwhelming the executor's scheduler when mapping over very large
                 iterables (tens or hundreds of thousands of items).
@@ -356,26 +371,40 @@ class Executor(ABC):
                 is not present in the mapping.  `None` (default) passes no extra options.
 
         Returns:
-            A `Sequence[R]` when `result_config` is `RESULT`, or a
+            A callable taking the iterable of first arguments plus `func`'s remaining
+            arguments. It returns a `Sequence[R]` when `result_config` is `RESULT`, or a
             `Sequence[Future[R]]` when `result_config` is `FUTURE_PENDING` or
             `FUTURE_COMPLETED`.  In all cases the sequence preserves the order of the
             input iterable.
-            When `exception_config` is`ExceptionConfig.RETURN`, the
-            yielded type is additionally widened with `| Exception`
+            When `exception_config` is `ExceptionConfig.RETURN`, the
+            element type is additionally widened with `| Exception`
             so that failed tasks appear inline with successes.
 
-        Raises:
-            ExceptionGroup: When `exception_config` is `RAISE_GROUPED` and one or more
-                tasks failed.  The group contains every exception that occurred.
-            Exception: When `exception_config` is `RAISE_EAGERLY`, the first exception
-                from a completed task is raised directly.
+            Calling it raises an `ExceptionGroup` containing every exception that
+            occurred when `exception_config` is `RAISE_GROUPED` and one or more tasks
+            failed, or the first exception from a completed task when `exception_config`
+            is `RAISE_EAGERLY`.
         """
-        ...
+
+        def map_call(
+            first_args: Iterable[T], /, *args: P.args, **kwargs: P.kwargs
+        ) -> Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception]:
+            return self._map(
+                MultipleWrap(func, first_args, *args, **kwargs),
+                result_config=result_config,
+                exception_config=exception_config,
+                retry_config=retry_config,
+                max_pending_tasks=max_pending_tasks,
+                executor_kwargs=executor_kwargs,
+            )
+
+        return map_call
 
     @overload
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: Literal[ResultConfig.RESULT] = ...,
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY] = ...,
@@ -383,51 +412,55 @@ class Executor(ABC):
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[R]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Iterator[R]]: ...
 
     @overload
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: Literal[ResultConfig.RESULT] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
+        exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[R | Exception]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Iterator[R | Exception]]: ...
 
     @overload
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
+        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED],
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY] = ...,
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[Future[R]]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Iterator[Future[R]]]: ...
 
     @overload
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
+        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED],
+        exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[Future[R] | Exception]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Iterator[Future[R] | Exception]]: ...
 
     @overload
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = ...,
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY] = ...,
@@ -435,25 +468,26 @@ class Executor(ABC):
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[Future[R]] | Iterator[R]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Iterator[Future[R]] | Iterator[R]]: ...
 
     @overload
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
+        exception_config: Literal[ExceptionConfig.RETURN],
         retry_config: int | RetryConfig | None = ...,
         ordered: bool = ...,
         max_pending_tasks: int | None = ...,
         executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[R | Exception] | Iterator[Future[R] | Exception]: ...
+    ) -> Callable[Concatenate[Iterable[T], P], Iterator[R | Exception] | Iterator[Future[R] | Exception]]: ...
 
-    @abstractmethod
     def map_lazy[T, **P, R](
         self,
-        w: MultipleWrap[T, P, R],
+        func: Callable[Concatenate[T, P], R],
+        /,
         *,
         result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
         exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RETURN] = DEFAULT_EXCEPTION_CONFIG,
@@ -461,10 +495,14 @@ class Executor(ABC):
         ordered: bool = True,
         max_pending_tasks: int | None = DEFAULT_MAX_PENDING_TASKS,
         executor_kwargs: Mapping[type[Executor], Any] | None = None,
-    ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
-        """Lazily map a function over an iterable, yielding each result as it becomes available.
+    ) -> Callable[
+        Concatenate[Iterable[T], P],
+        Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception],
+    ]:
+        """Bind `func` and the execution options into a callable that lazily maps `func` over an iterable.
 
-        Like `map`, but returns an `Iterator` instead of a `Sequence`. Results are yielded
+        Like `map`, but the returned callable produces an `Iterator` instead of a
+        `Sequence`, e.g. `executor.map_lazy(func, ordered=False)(items, b=2)`. Results are yielded
         individually as tasks complete, rather than waiting for all tasks to finish.  This
         is useful for pipelines where downstream processing can begin before all tasks are
         done.
@@ -474,9 +512,9 @@ class Executor(ABC):
         iterator.
 
         Args:
-            w: A `MultipleWrap` bundling the function, the iterable of first arguments
-                to fan out over, and any additional shared positional/keyword arguments.
-                Created via `mwrap(func, first_args, *args, **kwargs)`.
+            func: The function to fan out. Its first parameter receives one element of the
+                iterable per task; its remaining arguments are passed to the returned
+                callable and shared across tasks.
             result_config: Controls what is yielded for each task.
                 * `ResultConfig.RESULT` (default) — yields computed values of type `R` as
                   tasks complete.
@@ -514,7 +552,7 @@ class Executor(ABC):
                   finishes first is yielded first.  This gives the lowest possible latency
                   per result.
             max_pending_tasks: Maximum number of tasks that may be submitted but not yet
-                completed at any point in time.  When this limit is reached, the method
+                completed at any point in time.  When this limit is reached, the call
                 waits for some tasks to complete before submitting more.  This prevents
                 overwhelming the executor's scheduler when mapping over very large
                 iterables (tens or hundreds of thousands of items).
@@ -527,15 +565,68 @@ class Executor(ABC):
                 requirements, scheduling options).  Ignored by implementations whose type
                 is not present in the mapping.  `None` (default) passes no extra options.
 
-        Yields:
-            `R` when `result_config` is `RESULT`, or `Future[R]` when `result_config` is
-            `FUTURE_PENDING` or `FUTURE_COMPLETED`. When `exception_config` is
-            `ExceptionConfig.RETURN`, the yielded type is additionally widened with
-            `| Exception` so that failed tasks appear inline with successes.
+        Returns:
+            A callable taking the iterable of first arguments plus `func`'s remaining
+            arguments. Its iterator yields `R` when `result_config` is `RESULT`, or
+            `Future[R]` when `result_config` is `FUTURE_PENDING` or `FUTURE_COMPLETED`.
+            When `exception_config` is `ExceptionConfig.RETURN`, the yielded type is
+            additionally widened with `| Exception` so that failed tasks appear inline
+            with successes.
 
-        Raises:
-            Exception: For `RESULT` and `FUTURE_COMPLETED` under
-                `ExceptionConfig.RAISE_EAGERLY`, any task exception is raised directly
-                from the iterator upon encountering the failed task's result.
+            For `RESULT` and `FUTURE_COMPLETED` under `ExceptionConfig.RAISE_EAGERLY`, any
+            task exception is raised directly from the iterator upon encountering the
+            failed task's result.
         """
-        ...
+
+        def map_lazy_call(
+            first_args: Iterable[T], /, *args: P.args, **kwargs: P.kwargs
+        ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
+            return self._map_lazy(
+                MultipleWrap(func, first_args, *args, **kwargs),
+                result_config=result_config,
+                exception_config=exception_config,
+                retry_config=retry_config,
+                ordered=ordered,
+                max_pending_tasks=max_pending_tasks,
+                executor_kwargs=executor_kwargs,
+            )
+
+        return map_lazy_call
+
+    # Backend hooks. The public methods above own the defaults and the precise return types (via overloads); backends
+    # implement these and always receive every option explicitly.
+
+    @abstractmethod
+    def _submit[**P, R](
+        self,
+        w: SingleWrap[P, R],
+        *,
+        result_config: ResultConfig,
+        retry_config: int | RetryConfig | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
+    ) -> Future[R] | R: ...
+
+    @abstractmethod
+    def _map[T, **P, R](
+        self,
+        w: MultipleWrap[T, P, R],
+        *,
+        result_config: ResultConfig,
+        exception_config: ExceptionConfig,
+        retry_config: int | RetryConfig | None,
+        max_pending_tasks: int | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
+    ) -> Sequence[Future[R]] | Sequence[Future[R] | Exception] | Sequence[R] | Sequence[R | Exception]: ...
+
+    @abstractmethod
+    def _map_lazy[T, **P, R](
+        self,
+        w: MultipleWrap[T, P, R],
+        *,
+        result_config: ResultConfig,
+        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RETURN],
+        retry_config: int | RetryConfig | None,
+        ordered: bool,
+        max_pending_tasks: int | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
+    ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]: ...

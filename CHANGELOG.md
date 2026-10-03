@@ -11,11 +11,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - **Breaking:** The executors from `disco.executors.revamp` now live directly in `disco.executors`
   (e.g. `disco.executors.ray.RayExecutor`); the `disco.executors.revamp` submodule is gone.
+- **Breaking:** `submit` / `map` / `map_lazy` take the function plus the executor options and return a callable that
+  takes the function's own arguments: `executor.map(func, retry_config=3)(items, *args, **kwargs)` instead of
+  `executor.map(mwrap(func, items, *args, **kwargs), retry_config=3)`. Both calls are fully typed, and the function's
+  keywords can no longer clash with executor options.
+- Backends implement the private hooks `_submit` / `_map` / `_map_lazy`; the public overloads live once on `Executor`.
+
+### Added
+
+- `Future` is exported from `disco.executors`.
 
 ### Removed
 
 - The legacy executors (previously `disco.executors.[base/local/ray/dask]`) including `ErrorRaiseMode`,
   `to_revamp_executor` and `from_legacy_executor`.
+- `wrap` and `mwrap`; see the new call style above.
 
 ## [0.2.7] - 2026-04-21
 

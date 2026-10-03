@@ -17,10 +17,11 @@ from .utils import (
     ExpectedExceptionInput,
     FailNTimesInput,
     foo,
+    foo_clashing,
     foo_exc,
     foo_fail_n_times,
 )
-from disco.executors.base import ExceptionConfig, Executor, Future, ResultConfig, RetryConfig, mwrap, wrap
+from disco.executors.base import ExceptionConfig, Executor, Future, ResultConfig, RetryConfig
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -41,7 +42,7 @@ class TestExecutors:
             "result_config", [ResultConfig.RESULT, ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED]
         )
         def test_submit(self, executor: Executor, result_config: ResultConfig, bar: int, baz: int, biz: int) -> None:
-            result: Future[int] | int = executor.submit(wrap(foo, bar, baz, biz=biz), result_config=result_config)
+            result: Future[int] | int = executor.submit(foo, result_config=result_config)(bar, baz, biz=biz)
             expected_result = sum((bar, baz, biz))
             match result_config:
                 case ResultConfig.RESULT:
@@ -53,6 +54,29 @@ class TestExecutors:
                 case _:
                     raise ValueError(f"Unexpected result config: {result_config}")
 
+    class TestCallSignature:
+        """The function's own arguments, keyword-only and equally named ones included, reach every backend intact"""
+
+        def test_submit(self, executor: Executor) -> None:
+            future = executor.submit(foo_clashing, result_config=ResultConfig.FUTURE_COMPLETED)(
+                1, 2, result_config="theirs", flag=True
+            )
+            assert future.result() == "3:theirs:True"
+
+        def test_map(self, executor: Executor) -> None:
+            run = executor.map(foo_clashing, result_config=ResultConfig.RESULT)
+            assert run([1, 2], 10, result_config="theirs", flag=True) == ["11:theirs:True", "12:theirs:True"]
+            # The bound callable is reusable, and each call is independent.
+            assert run([5]) == ["5:mine:False"]
+
+        def test_map_lazy(self, executor: Executor) -> None:
+            run = executor.map_lazy(foo_clashing, ordered=True)
+            assert list(run(iter([1, 2]), 10, result_config="theirs", flag=True)) == [
+                "11:theirs:True",
+                "12:theirs:True",
+            ]
+            assert list(run([5])) == ["5:mine:False"]
+
     class TestSubmitException:
         """Tests executing a task that raises an exception"""
 
@@ -62,11 +86,11 @@ class TestExecutors:
             self, executor: Executor, result_config: ResultConfig, inp: ExpectedExceptionInput
         ) -> None:
             with pytest.raises(CustomError, match=CUSTOM_ERROR_MSG + rf" \({inp.num}\)"):
-                executor.submit(wrap(foo_exc, inp), result_config=result_config)
+                executor.submit(foo_exc, result_config=result_config)(inp)
 
         @given(inp=EXPECTED_EXCEPTION_FAIL_INPUT)
         def test_submit_exception_pending_future(self, executor: Executor, inp: ExpectedExceptionInput) -> None:
-            future = executor.submit(wrap(foo_exc, inp), result_config=ResultConfig.FUTURE_PENDING)
+            future = executor.submit(foo_exc, result_config=ResultConfig.FUTURE_PENDING)(inp)
 
             exception = future.exception()
             assert isinstance(exception, CustomError)
@@ -91,10 +115,8 @@ class TestExecutors:
         ) -> None:
             inp = FailNTimesInput(counter_callable=atomic_counter, num=42)
             result: Future[int] | int = executor.submit(
-                wrap(foo_fail_n_times, inp, required_executions=required_executions),
-                result_config=result_config,
-                retry_config=required_executions - 1,
-            )
+                foo_fail_n_times, result_config=result_config, retry_config=required_executions - 1
+            )(inp, required_executions=required_executions)
             match result_config:
                 case ResultConfig.RESULT:
                     assert isinstance(result, int)
@@ -118,10 +140,8 @@ class TestExecutors:
                 CustomError,
                 match=CUSTOM_ERROR_MSG + rf" \({required_executions - 1}/{required_executions}, num={inp.num}\)",
             ):
-                executor.submit(
-                    wrap(foo_fail_n_times, inp, required_executions=required_executions),
-                    result_config=result_config,
-                    retry_config=required_executions - 2,
+                executor.submit(foo_fail_n_times, result_config=result_config, retry_config=required_executions - 2)(
+                    inp, required_executions=required_executions
                 )
 
         def test_submit_exception_too_few_retries_pending_future(
@@ -132,10 +152,8 @@ class TestExecutors:
         ) -> None:
             inp = FailNTimesInput(counter_callable=atomic_counter, num=42)
             future: Future[int] = executor.submit(
-                wrap(foo_fail_n_times, inp, required_executions=required_executions),
-                result_config=ResultConfig.FUTURE_PENDING,
-                retry_config=required_executions - 2,
-            )
+                foo_fail_n_times, result_config=ResultConfig.FUTURE_PENDING, retry_config=required_executions - 2
+            )(inp, required_executions=required_executions)
 
             exc = future.exception()
             assert isinstance(exc, CustomError)
@@ -165,10 +183,10 @@ class TestExecutors:
         ) -> None:
             inp = FailNTimesInput(counter_callable=atomic_counter, num=42)
             result: Future[int] | int = executor.submit(
-                wrap(foo_fail_n_times, inp, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=result_config,
                 retry_config=RetryConfig(retries=required_executions - 1, exceptions=[CustomError]),
-            )
+            )(inp, required_executions=required_executions)
             match result_config:
                 case ResultConfig.RESULT:
                     assert isinstance(result, int)
@@ -190,10 +208,10 @@ class TestExecutors:
             inp = FailNTimesInput(counter_callable=atomic_counter, num=42)
             with pytest.raises(CustomError, match=CUSTOM_ERROR_MSG + rf" \(1/{required_executions}, num={inp.num}\)"):
                 executor.submit(
-                    wrap(foo_fail_n_times, inp, required_executions=required_executions),
+                    foo_fail_n_times,
                     result_config=result_config,
                     retry_config=RetryConfig(retries=required_executions - 1, exceptions=[DifferentCustomError]),
-                )
+                )(inp, required_executions=required_executions)
 
         def test_submit_exception_retry_wrong_exception_type_pending_future(
             self,
@@ -203,10 +221,10 @@ class TestExecutors:
         ) -> None:
             inp = FailNTimesInput(counter_callable=atomic_counter, num=42)
             future = executor.submit(
-                wrap(foo_fail_n_times, inp, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=ResultConfig.FUTURE_PENDING,
                 retry_config=RetryConfig(retries=required_executions - 2, exceptions=[DifferentCustomError]),
-            )
+            )(inp, required_executions=required_executions)
 
             exc = future.exception()
             assert isinstance(exc, CustomError)
@@ -232,10 +250,10 @@ class TestExecutors:
             biz: int,
         ) -> None:
             results: Sequence[Future[int]] | Sequence[int] = executor.map(
-                mwrap(foo, nums, baz, biz=biz),
+                foo,
                 result_config=result_config,
                 max_pending_tasks=None if max_pending_ratio is None else max(1, int(len(nums) * max_pending_ratio)),
-            )
+            )(nums, baz, biz=biz)
             assert isinstance(results, Sequence)
             expected_result = [num + baz + biz for num in nums]
             match result_config:
@@ -277,13 +295,13 @@ class TestExecutors:
 
             with test_harness:
                 executor.map(
-                    mwrap(foo_exc, expected_exception_input),
+                    foo_exc,
                     result_config=result_config,
                     exception_config=exception_config,
                     max_pending_tasks=None
                     if max_pending_ratio is None
                     else max(1, int(len(expected_exception_input) * max_pending_ratio)),
-                )
+                )(expected_exception_input)
 
         @given(expected_exception_input=EXPECTED_EXCEPTION_INPUTS_LISTS)
         def test_map_expected_excs_pending_futures(
@@ -296,12 +314,12 @@ class TestExecutors:
             fail_inputs = [inp for inp in expected_exception_input if inp.should_fail]
 
             futures: Sequence[Future[int]] = executor.map(
-                mwrap(foo_exc, expected_exception_input),
+                foo_exc,
                 result_config=ResultConfig.FUTURE_PENDING,
                 max_pending_tasks=None
                 if max_pending_ratio is None
                 else max(1, int(len(expected_exception_input) * max_pending_ratio)),
-            )
+            )(expected_exception_input)
 
             results: list[int] = []
             exceptions: list[Exception] = []
@@ -332,13 +350,13 @@ class TestExecutors:
             input position — a [PASS, FAIL, FAIL, PASS] input must yield
             [result, Exception, Exception, result] in the same order."""
             results: Sequence[int | Exception] | Sequence[Future[int] | Exception] = executor.map(
-                mwrap(foo_exc, expected_exception_input),
+                foo_exc,
                 result_config=result_config,
                 exception_config=ExceptionConfig.RETURN,
                 max_pending_tasks=None
                 if max_pending_ratio is None
                 else max(1, int(len(expected_exception_input) * max_pending_ratio)),
-            )
+            )(expected_exception_input)
             assert len(results) == len(expected_exception_input)
 
             for result, inp in zip(results, expected_exception_input, strict=True):
@@ -373,10 +391,8 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             results: Sequence[Future[int]] | Sequence[int] = executor.map(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
-                result_config=result_config,
-                retry_config=required_executions - 1,
-            )
+                foo_fail_n_times, result_config=result_config, retry_config=required_executions - 1
+            )(inputs, required_executions=required_executions)
             match result_config:
                 case ResultConfig.RESULT:
                     assert all(isinstance(r, int) for r in results)
@@ -424,11 +440,11 @@ class TestExecutors:
 
             with test_harness:
                 executor.map(
-                    mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                    foo_fail_n_times,
                     result_config=result_config,
                     exception_config=exception_config,
                     retry_config=required_executions - 2,
-                )
+                )(inputs, required_executions=required_executions)
 
         @given(nums=INT_LISTS_SMALL)
         def test_map_too_few_retries_pending_futures(
@@ -441,10 +457,8 @@ class TestExecutors:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
 
             futures: Sequence[Future[int]] = executor.map(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
-                result_config=ResultConfig.FUTURE_PENDING,
-                retry_config=required_executions - 2,
-            )
+                foo_fail_n_times, result_config=ResultConfig.FUTURE_PENDING, retry_config=required_executions - 2
+            )(inputs, required_executions=required_executions)
 
             for future, inp in zip(futures, inputs, strict=True):
                 exc = future.exception()
@@ -477,10 +491,10 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             results: Sequence[Future[int]] | Sequence[int] = executor.map(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=result_config,
                 retry_config=RetryConfig(retries=required_executions - 1, exceptions=[CustomError]),
-            )
+            )(inputs, required_executions=required_executions)
             match result_config:
                 case ResultConfig.RESULT:
                     assert all(isinstance(r, int) for r in results)
@@ -527,11 +541,11 @@ class TestExecutors:
 
             with test_harness:
                 executor.map(
-                    mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                    foo_fail_n_times,
                     result_config=result_config,
                     exception_config=exception_config,
                     retry_config=RetryConfig(retries=required_executions - 1, exceptions=[DifferentCustomError]),
-                )
+                )(inputs, required_executions=required_executions)
 
         @given(nums=INT_LISTS_SMALL)
         def test_map_retry_wrong_exception_type_pending_futures(
@@ -544,10 +558,10 @@ class TestExecutors:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
 
             futures: Sequence[Future[int]] = executor.map(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=ResultConfig.FUTURE_PENDING,
                 retry_config=RetryConfig(retries=required_executions - 2, exceptions=[DifferentCustomError]),
-            )
+            )(inputs, required_executions=required_executions)
 
             for future, inp in zip(futures, inputs, strict=True):
                 exc = future.exception()
@@ -578,11 +592,11 @@ class TestExecutors:
             biz: int,
         ) -> None:
             it = executor.map_lazy(
-                mwrap(foo, nums, baz, biz=biz),
+                foo,
                 result_config=result_config,
                 ordered=ordered,
                 max_pending_tasks=None if max_pending_ratio is None else max(1, int(len(nums) * max_pending_ratio)),
-            )
+            )(nums, baz, biz=biz)
             expected = [num + baz + biz for num in nums]
             if ordered:
                 # Consume one-by-one and verify each position
@@ -617,13 +631,13 @@ class TestExecutors:
             # We just verify the exception surfaces during iteration; the order of successful
             # results is already covered by test_map_lazy.
             it = executor.map_lazy(
-                mwrap(foo_exc, expected_exception_input),
+                foo_exc,
                 result_config=result_config,
                 ordered=ordered,
                 max_pending_tasks=None
                 if max_pending_ratio is None
                 else max(1, int(len(expected_exception_input) * max_pending_ratio)),
-            )
+            )(expected_exception_input)
             with pytest.raises(CustomError, match=CUSTOM_ERROR_MSG):
                 for _ in it:
                     pass
@@ -637,13 +651,13 @@ class TestExecutors:
             expected_exception_input: Sequence[ExpectedExceptionInput],
         ) -> None:
             it = executor.map_lazy(
-                mwrap(foo_exc, expected_exception_input),
+                foo_exc,
                 result_config=ResultConfig.FUTURE_PENDING,
                 ordered=ordered,
                 max_pending_tasks=None
                 if max_pending_ratio is None
                 else max(1, int(len(expected_exception_input) * max_pending_ratio)),
-            )
+            )(expected_exception_input)
             if ordered:
                 # Futures arrive in input order — check each against its input
                 for future, inp in zip(it, expected_exception_input, strict=True):
@@ -681,14 +695,14 @@ class TestExecutors:
             `ordered=True`, they appear at their exact input position (e.g. a
             [PASS, FAIL, FAIL, PASS] input yields [result, Exception, Exception, result])."""
             it = executor.map_lazy(
-                mwrap(foo_exc, expected_exception_input),
+                foo_exc,
                 result_config=result_config,
                 exception_config=ExceptionConfig.RETURN,
                 ordered=ordered,
                 max_pending_tasks=None
                 if max_pending_ratio is None
                 else max(1, int(len(expected_exception_input) * max_pending_ratio)),
-            )
+            )(expected_exception_input)
             if ordered:
                 for result, inp in zip(it, expected_exception_input, strict=True):
                     if inp.should_fail:
@@ -744,11 +758,8 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             it = executor.map_lazy(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
-                result_config=result_config,
-                ordered=ordered,
-                retry_config=required_executions - 1,
-            )
+                foo_fail_n_times, result_config=result_config, ordered=ordered, retry_config=required_executions - 1
+            )(inputs, required_executions=required_executions)
             if ordered:
                 for result, expected_num in zip(it, nums, strict=True):
                     match result_config:
@@ -778,11 +789,8 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             it = executor.map_lazy(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
-                result_config=result_config,
-                ordered=ordered,
-                retry_config=required_executions - 2,
-            )
+                foo_fail_n_times, result_config=result_config, ordered=ordered, retry_config=required_executions - 2
+            )(inputs, required_executions=required_executions)
             # All tasks fail — the very first yielded result raises
             with pytest.raises(
                 CustomError,
@@ -801,11 +809,11 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             it = executor.map_lazy(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=ResultConfig.FUTURE_PENDING,
                 ordered=ordered,
                 retry_config=required_executions - 2,
-            )
+            )(inputs, required_executions=required_executions)
             if ordered:
                 for future, inp in zip(it, inputs, strict=True):
                     exc = future.exception()
@@ -837,11 +845,11 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             it = executor.map_lazy(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=result_config,
                 ordered=ordered,
                 retry_config=RetryConfig(retries=required_executions - 1, exceptions=[CustomError]),
-            )
+            )(inputs, required_executions=required_executions)
             if ordered:
                 for result, expected_num in zip(it, nums, strict=True):
                     match result_config:
@@ -871,11 +879,11 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             it = executor.map_lazy(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=result_config,
                 ordered=ordered,
                 retry_config=RetryConfig(retries=required_executions - 1, exceptions=[DifferentCustomError]),
-            )
+            )(inputs, required_executions=required_executions)
             # All tasks fail on first attempt — first yielded result raises
             with pytest.raises(
                 CustomError,
@@ -894,11 +902,11 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
             it = executor.map_lazy(
-                mwrap(foo_fail_n_times, inputs, required_executions=required_executions),
+                foo_fail_n_times,
                 result_config=ResultConfig.FUTURE_PENDING,
                 ordered=ordered,
                 retry_config=RetryConfig(retries=required_executions - 2, exceptions=[DifferentCustomError]),
-            )
+            )(inputs, required_executions=required_executions)
             if ordered:
                 for future, inp in zip(it, inputs, strict=True):
                     exc = future.exception()
