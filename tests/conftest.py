@@ -11,7 +11,7 @@ import dask.distributed
 import pytest
 import ray
 
-from .sqlite_utils import ensure_counter_db, raise_counter, register_counter
+from .counter_utils import raise_counter, register_counter
 from disco.executors.dask import DaskExecutor
 from disco.executors.local import LocalExecutor
 from disco.executors.local_pool import LocalPoolExecutor
@@ -85,18 +85,16 @@ EXECUTOR_FACTORIES = {
 
 
 @pytest.fixture(scope="session")
-def sqlite_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    db_path = tmp_path_factory.mktemp("sqlite") / "counter.sqlite3"
-    ensure_counter_db(db_path)
-    return db_path
+def counter_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("counters")
 
 
 @pytest.fixture(scope="session")
-def atomic_counter_factory(sqlite_db: Path) -> Callable[[], Callable[..., int]]:
+def atomic_counter_factory(counter_root: Path) -> Callable[[], Callable[..., int]]:
     def factory() -> Callable[..., int]:
         key = uuid4().hex
-        register_counter(sqlite_db, key)
-        return partial(raise_counter, sqlite_db, key)
+        register_counter(counter_root, key)
+        return partial(raise_counter, counter_root, key)
 
     return factory
 
