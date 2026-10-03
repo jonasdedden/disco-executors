@@ -3,19 +3,13 @@
 A small, typed façade over pluggable task-execution backends (local, Ray) with
 explicit control over how results, exceptions, retries and back-pressure are surfaced.
 
-> **This document describes the `disco.executors.revamp` submodule.** The top-level
-> `disco.executors` module (with `LocalExecutor`, `RayExecutor`, `DaskExecutor`)
-> is considered deprecated. New code should import from `disco.executors.revamp`.
-> A `from_legacy_executor` classmethod is provided on each revamp executor for
-> migration.
-
 ---
 
 ## Quick start
 
 ```python
-from disco.executors.revamp import mwrap, wrap
-from disco.executors.revamp.local import LocalExecutor
+from disco.executors import mwrap, wrap
+from disco.executors.local import LocalExecutor
 
 
 def add(a: int, b: int, *, scale: int = 1) -> int:
@@ -203,7 +197,7 @@ backend — under `FUTURE_PENDING` you only learn about retries when the future
 resolves.
 
 ```python
-from disco.executors.revamp import RetryConfig
+from disco.executors import RetryConfig
 
 executor.map(
     mwrap(flaky_api_call, urls),
@@ -234,7 +228,7 @@ Raise or disable only if you've measured and know you don't hit scheduler limits
 ### `LocalExecutor`
 
 ```python
-from disco.executors.revamp.local import LocalExecutor
+from disco.executors.local import LocalExecutor
 ```
 
 Runs tasks sequentially in the calling process. Useful for development and
@@ -248,7 +242,7 @@ for unit tests. Notes:
 ### `RayExecutor`
 
 ```python
-from disco.executors.revamp.ray import RayExecutor, RayKwargs
+from disco.executors.ray import RayExecutor, RayKwargs
 ```
 
 Runs tasks on a Ray cluster. Must be called after `ray.init()`.
@@ -278,7 +272,7 @@ executor.map(
 
 ```python
 import concurrent.futures
-from disco.executors.revamp.local_pool import LocalPoolExecutor
+from disco.executors.local_pool import LocalPoolExecutor
 ```
 
 Runs tasks on a `concurrent.futures.Executor` — a `ThreadPoolExecutor` or a
@@ -295,14 +289,13 @@ with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
 ### `DaskExecutor`
 
 > ⚠ **Experimental.** This backend was essentially vibe-coded against the abstract
-> `Executor` contract and the legacy `disco.executors.dask` module — it has not been
-> battle-tested on a real cluster, and edge cases around scheduler pressure, future
-> lifetime, and retry semantics may bite. Use with suspicion, prefer
+> `Executor` contract — it has not been battle-tested on a real cluster, and edge
+> cases around scheduler pressure, future lifetime, and retry semantics may bite. Use with suspicion, prefer
 > `RayExecutor` / `LocalPoolExecutor` where feasible, and please report oddities.
 
 ```python
 import dask.distributed
-from disco.executors.revamp.dask import DaskExecutor
+from disco.executors.dask import DaskExecutor
 ```
 
 Wraps a caller-supplied `dask.distributed.Client` (the executor does not own the
@@ -355,21 +348,3 @@ Behavioural notes specific to Dask:
 | Fire-and-forget (potentially slightly blocking through `max_pending_tasks`)         | `map`      | `FUTURE_PENDING`   | any (ignored)     |
 | Streaming fire-and-forget (move control fully over to user, no waiting for results) | `map_lazy` | `FUTURE_PENDING`   | any (ignored)     |
 
----
-
-## Migration from deprecated `disco.executors`
-
-Each revamp executor exposes a `from_legacy_executor` classmethod that accepts
-the corresponding legacy executor instance:
-
-```python
-from disco.executors.ray import RayExecutor as LegacyRayExecutor
-from disco.executors.revamp.ray import RayExecutor
-
-legacy = LegacyRayExecutor(...)
-new = RayExecutor.from_legacy_executor(legacy)
-```
-
-Functions that took a legacy executor can switch to the revamp API in two
-steps: swap the type at the boundary, then gradually update call-sites to use
-the typed `wrap` / `mwrap` + `result_config` / `exception_config` interface.

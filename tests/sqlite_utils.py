@@ -7,8 +7,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _connect(db_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    # The counter only has to be atomic across processes, not crash-durable. Skipping the per-commit fsync keeps the
+    # retry tests (thousands of commits each) fast when the temp dir is on a real disk rather than tmpfs.
+    conn.execute("PRAGMA synchronous = OFF")
+    return conn
+
+
 def ensure_counter_db(db_path: Path) -> None:
-    with sqlite3.connect(db_path) as conn:
+    with _connect(db_path) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS atomic_counter (
@@ -20,7 +28,7 @@ def ensure_counter_db(db_path: Path) -> None:
 
 
 def register_counter(db_path: Path, counter_key: str) -> None:
-    with sqlite3.connect(db_path) as conn:
+    with _connect(db_path) as conn:
         conn.execute(
             """
             INSERT INTO atomic_counter (counter_key, value)
@@ -31,7 +39,7 @@ def register_counter(db_path: Path, counter_key: str) -> None:
 
 
 def raise_counter(db_path: Path, counter_key: str, *_: Any) -> int:
-    with sqlite3.connect(db_path, timeout=30.0) as conn:
+    with _connect(db_path) as conn:
         row = conn.execute(
             """
             UPDATE atomic_counter

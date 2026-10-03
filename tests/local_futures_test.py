@@ -12,7 +12,7 @@ from .utils import (
     foo,
     foo_exc,
 )
-from disco.executors.revamp.local import LocalFuture, LocalFutureCancelledError, LocalFutureState
+from disco.executors.local import LocalFuture, LocalFutureCancelledError, LocalFutureState
 
 
 class TestLocalFuture:

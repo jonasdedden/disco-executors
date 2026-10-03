@@ -6,9 +6,9 @@ import pytest
 import ray.exceptions
 
 from .utils import foo
-from disco.executors.revamp import ResultConfig
-from disco.executors.revamp.base import Executor, mwrap, wrap
-from disco.executors.revamp.ray import RayExecutor, RayKwargs
+from disco.executors import ResultConfig
+from disco.executors.base import Executor, mwrap, wrap
+from disco.executors.ray import RayExecutor, RayKwargs
 
 
 @pytest.mark.parametrize("executor", ["ray"], indirect=True)
