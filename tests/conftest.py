@@ -10,6 +10,7 @@ from uuid import uuid4
 import dask.distributed
 import pytest
 import ray
+from hypothesis import settings
 
 from .counter_utils import raise_counter, register_counter
 from disco.executors.dask import DaskExecutor
@@ -24,6 +25,27 @@ if TYPE_CHECKING:
     from disco.executors.base import Executor
 
 EXECUTOR_NAMES: Final[tuple[str, ...]] = ("local", "dask", "ray", "thread", "process")
+
+# Shared CI runners have noisy timings, and the default 200ms per-example deadline mostly measures scheduler latency.
+# Tests with an explicit `@settings(deadline=...)` keep theirs.
+settings.register_profile("ci", deadline=None, print_blob=True)
+if os.environ.get("CI"):
+    settings.load_profile("ci")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    for name in EXECUTOR_NAMES:
+        config.addinivalue_line("markers", f"{name}: runs on the `{name}` executor (set automatically)")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    # Mark each executor-parametrized test with its executor, so e.g. `-m ray` selects exactly the Ray tests.
+    for item in items:
+        # `callspec` only exists on parametrized test functions.
+        if isinstance(item, pytest.Function) and hasattr(item, "callspec") and "executor" in item.callspec.params:
+            executor_name = item.callspec.params["executor"]
+            assert isinstance(executor_name, str)
+            item.add_marker(executor_name)
 
 
 def _num_cpus() -> int:

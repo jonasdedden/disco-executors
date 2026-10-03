@@ -1,5 +1,7 @@
 # disco-executors
 
+[![CI](https://github.com/jonasdedden/disco-executors/actions/workflows/ci.yml/badge.svg)](https://github.com/jonasdedden/disco-executors/actions/workflows/ci.yml)
+
 A small, typed façade over pluggable task-execution backends (local, Ray) with
 explicit control over how results, exceptions, retries and back-pressure are surfaced.
 
