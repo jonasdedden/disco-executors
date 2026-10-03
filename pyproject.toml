@@ -79,6 +79,10 @@ ignore = [
     "FBT003", # Positional boolean
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typing.cast".msg = "Avoid `cast`; narrow with `isinstance` or fix the types. Upstream-typing workarounds: `# noqa: TID251` with a reason."
+"typing_extensions.cast".msg = "Avoid `cast`; see `typing.cast`."
+
 [tool.ruff.lint.isort]
 known-local-folder = ["disco.executors"]
 required-imports = ["from __future__ import annotations"]
