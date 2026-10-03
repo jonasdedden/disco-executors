@@ -12,16 +12,16 @@ import pytest
 import ray
 
 from .sqlite_utils import ensure_counter_db, raise_counter, register_counter
-from disco.executors.revamp.dask import DaskExecutor
-from disco.executors.revamp.local import LocalExecutor
-from disco.executors.revamp.local_pool import LocalPoolExecutor
-from disco.executors.revamp.ray import RayExecutor
+from disco.executors.dask import DaskExecutor
+from disco.executors.local import LocalExecutor
+from disco.executors.local_pool import LocalPoolExecutor
+from disco.executors.ray import RayExecutor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-    from disco.executors.revamp.base import Executor
+    from disco.executors.base import Executor
 
 EXECUTOR_NAMES: Final[tuple[str, ...]] = ("local", "dask", "ray", "thread", "process")
 

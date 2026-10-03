@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 from collections import deque
-from typing import TYPE_CHECKING, Any, Literal, Self, assert_never, overload
+from typing import TYPE_CHECKING, Any, Literal, assert_never, overload
 
 from .base import (
     DEFAULT_EXCEPTION_CONFIG,
@@ -20,11 +20,9 @@ from .base import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
 
-    from disco.executors.base import Executor as LegacyExecutor
-
 
 class LocalPoolFuture[R](Future[R]):
-    """Thin wrapper around `concurrent.futures.Future` that matches the revamp `Future` protocol.
+    """Thin wrapper around `concurrent.futures.Future` that matches the `Future` protocol.
 
     The only substantive adjustment over the wrapped future is `exception()`: the stdlib
     returns `BaseException | None`, whereas our protocol promises `Exception | None`.
@@ -104,10 +102,6 @@ class LocalPoolExecutor(Executor):
 
     def __init__(self, pool: concurrent.futures.Executor) -> None:
         self._pool = pool
-
-    @classmethod
-    def from_legacy_executor(cls, legacy_executor: LegacyExecutor) -> Self:
-        raise NotImplementedError("No legacy `concurrent.futures` executor exists to migrate from")
 
     @overload
     def submit[**P, R](

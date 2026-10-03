@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** The executors from `disco.executors.revamp` now live directly in `disco.executors`
+  (e.g. `disco.executors.ray.RayExecutor`); the `disco.executors.revamp` submodule is gone.
+
+### Removed
+
+- The legacy executors (previously `disco.executors.[base/local/ray/dask]`) including `ErrorRaiseMode`,
+  `to_revamp_executor` and `from_legacy_executor`.
+
 ## [0.2.7] - 2026-04-21
 
 ### Added

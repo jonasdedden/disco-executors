@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from .base import ErrorRaiseMode, Executor, Future
+from .base import ExceptionConfig, Executor, ResultConfig, RetryConfig, mwrap, wrap
 
-__all__ = ["Future", "Executor", "ErrorRaiseMode"]
+__all__ = ["ExceptionConfig", "Executor", "ResultConfig", "RetryConfig", "mwrap", "wrap"]

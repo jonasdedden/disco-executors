@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_type
 
-from disco.executors.revamp.base import ExceptionConfig, Executor, Future, ResultConfig, mwrap, wrap
-from disco.executors.revamp.local import LocalExecutor
+from disco.executors.base import ExceptionConfig, Executor, Future, ResultConfig, mwrap, wrap
+from disco.executors.local import LocalExecutor
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
