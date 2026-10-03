@@ -16,10 +16,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   `executor.map(mwrap(func, items, *args, **kwargs), retry_config=3)`. Both calls are fully typed, and the function's
   keywords can no longer clash with executor options.
 - Backends implement the private hooks `_submit` / `_map` / `_map_lazy`; the public overloads live once on `Executor`.
+- `executor_kwargs` is typed `Mapping[type[Executor], object]` instead of `Mapping[type[Executor], Any]`; each backend
+  narrows its own entry. Likewise, `RayKwargs`' option mappings take `object` values.
 
 ### Added
 
 - `Future` is exported from `disco.executors`.
+- `LocalFuture.execute()` (previously the private `_execute()`), the counterpart of `LocalFuture.reset()`.
+
+### Fixed
+
+- `LocalExecutor` raised `ValueError: Unknown format code '?'` instead of the intended `TypeError` for an invalid
+  `retry_config`.
+- `DaskExecutor` ignored keyword arguments named like `dask.base.tokenize`'s options (`ensure_deterministic`) when
+  generating task keys, so maps differing only in such an argument could get identical keys and reuse each other's
+  results.
 
 ### Removed
 

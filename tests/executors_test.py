@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, assert_never
 
 import pytest
 from hypothesis import given, settings
@@ -20,6 +20,7 @@ from .utils import (
     foo_clashing,
     foo_exc,
     foo_fail_n_times,
+    foo_flagged,
 )
 from disco.executors.base import ExceptionConfig, Executor, Future, ResultConfig, RetryConfig
 
@@ -52,7 +53,7 @@ class TestExecutors:
                     assert isinstance(result, Future)
                     assert result.result() == expected_result
                 case _:
-                    raise ValueError(f"Unexpected result config: {result_config}")
+                    assert_never(result_config)
 
     class TestCallSignature:
         """The function's own arguments, keyword-only and equally named ones included, reach every backend intact"""
@@ -68,6 +69,16 @@ class TestExecutors:
             assert run([1, 2], 10, result_config="theirs", flag=True) == ["11:theirs:True", "12:theirs:True"]
             # The bound callable is reusable, and each call is independent.
             assert run([5]) == ["5:mine:False"]
+
+        def test_map_kwargs_distinguish_tasks(self, executor: Executor) -> None:
+            # Maps differing only in a keyword argument are different tasks, even while the first one's futures are
+            # alive (Dask reuses results of tasks with identical keys).
+            first = executor.map(foo_flagged, result_config=ResultConfig.FUTURE_COMPLETED)(
+                [1], ensure_deterministic=False
+            )
+            second = executor.map(foo_flagged)([1], ensure_deterministic=True)
+            assert [f.result() for f in first] == [(1, False)]
+            assert second == [(1, True)]
 
         def test_map_lazy(self, executor: Executor) -> None:
             run = executor.map_lazy(foo_clashing, ordered=True)
@@ -125,7 +136,7 @@ class TestExecutors:
                     assert isinstance(result, Future)
                     assert result.result() == inp.num
                 case _:
-                    raise ValueError(f"Unexpected result config: {result_config}")
+                    assert_never(result_config)
 
         @pytest.mark.parametrize("result_config", [ResultConfig.RESULT, ResultConfig.FUTURE_COMPLETED])
         def test_submit_exception_too_few_retries(
@@ -195,7 +206,7 @@ class TestExecutors:
                     assert isinstance(result, Future)
                     assert result.result() == inp.num
                 case _:
-                    raise ValueError(f"Unexpected result config: {result_config}")
+                    assert_never(result_config)
 
         @pytest.mark.parametrize("result_config", [ResultConfig.RESULT, ResultConfig.FUTURE_COMPLETED])
         def test_submit_exception_retry_wrong_exception_type(
@@ -264,7 +275,7 @@ class TestExecutors:
                     assert all(isinstance(result, Future) for result in results)
                     assert [future.result() for future in results] == expected_result  # type: ignore[union-attr]
                 case _:
-                    raise ValueError(f"Unexpected result config: {result_config}")
+                    assert_never(result_config)
 
         @pytest.mark.parametrize("exception_config", [ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED])
         @pytest.mark.parametrize("result_config", [ResultConfig.RESULT, ResultConfig.FUTURE_COMPLETED])
@@ -279,7 +290,7 @@ class TestExecutors:
         ) -> None:
             fail_inputs = [inp for inp in expected_exception_input if inp.should_fail]
 
-            test_harness: AbstractContextManager[Any]
+            test_harness: AbstractContextManager[object]
             match exception_config:
                 case ExceptionConfig.RAISE_EAGERLY:
                     test_harness = pytest.raises(CustomError, match=CUSTOM_ERROR_MSG)
@@ -401,7 +412,7 @@ class TestExecutors:
                     assert all(isinstance(r, Future) for r in results)
                     assert [f.result() for f in results] == list(nums)  # type: ignore[union-attr]
                 case _:
-                    raise ValueError(f"Unexpected result config: {result_config}")
+                    assert_never(result_config)
 
         @pytest.mark.parametrize("exception_config", [ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED])
         @pytest.mark.parametrize("result_config", [ResultConfig.RESULT, ResultConfig.FUTURE_COMPLETED])
@@ -417,7 +428,7 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
 
-            test_harness: AbstractContextManager[Any]
+            test_harness: AbstractContextManager[object]
             match exception_config:
                 case ExceptionConfig.RAISE_EAGERLY:
                     test_harness = pytest.raises(
@@ -503,7 +514,7 @@ class TestExecutors:
                     assert all(isinstance(r, Future) for r in results)
                     assert [f.result() for f in results] == list(nums)  # type: ignore[union-attr]
                 case _:
-                    raise ValueError(f"Unexpected result config: {result_config}")
+                    assert_never(result_config)
 
         @pytest.mark.parametrize("exception_config", [ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED])
         @pytest.mark.parametrize("result_config", [ResultConfig.RESULT, ResultConfig.FUTURE_COMPLETED])
@@ -519,7 +530,7 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
 
-            test_harness: AbstractContextManager[Any]
+            test_harness: AbstractContextManager[object]
             match exception_config:
                 case ExceptionConfig.RAISE_EAGERLY:
                     test_harness = pytest.raises(
@@ -725,7 +736,7 @@ class TestExecutors:
                 failure_msgs: list[str] = []
                 for item in it:
                     if isinstance(item, CustomError):
-                        failure_msgs.append(item.args[0])
+                        failure_msgs.append(str(item))
                     elif isinstance(item, Future):
                         success_values.append(item.result())
                     else:

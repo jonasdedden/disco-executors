@@ -4,7 +4,7 @@ import concurrent.futures
 import contextlib
 import os
 from functools import partial
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 from uuid import uuid4
 
 import dask.distributed
@@ -19,7 +19,7 @@ from disco.executors.local_pool import LocalPoolExecutor
 from disco.executors.ray import RayExecutor
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
     from pathlib import Path
 
     from disco.executors.base import Executor
@@ -53,12 +53,12 @@ def _num_cpus() -> int:
 
 
 @contextlib.contextmanager
-def make_local_executor() -> Iterator[Executor]:
+def make_local_executor() -> Generator[Executor]:
     yield LocalExecutor()
 
 
 @contextlib.contextmanager
-def make_dask_executor() -> Iterator[Executor]:
+def make_dask_executor() -> Generator[Executor]:
     cluster = dask.distributed.LocalCluster(n_workers=_num_cpus(), processes=False, silence_logs=100)  # type: ignore[no-untyped-call]
     client = dask.distributed.Client(cluster)  # type: ignore[no-untyped-call]
     try:
@@ -69,30 +69,31 @@ def make_dask_executor() -> Iterator[Executor]:
 
 
 @contextlib.contextmanager
-def make_ray_executor() -> Iterator[Executor]:
+def make_ray_executor() -> Generator[Executor]:
     # Shorter "internal heartbeat" such that tasks are retried faster
-    ray.init(num_cpus=_num_cpus(), _system_config={"core_worker_internal_heartbeat_ms": 10})
+    ray.init(num_cpus=_num_cpus(), _system_config={"core_worker_internal_heartbeat_ms": 10})  # pyright: ignore[reportUnknownMemberType] # partially unannotated
     try:
         yield RayExecutor()
     finally:
-        ray.shutdown()
+        ray.shutdown()  # pyright: ignore[reportUnknownMemberType] # partially unannotated
 
 
 @contextlib.contextmanager
-def make_thread_pool_executor() -> Iterator[Executor]:
+def make_thread_pool_executor() -> Generator[Executor]:
     with concurrent.futures.ThreadPoolExecutor(max_workers=_num_cpus()) as pool:
         yield LocalPoolExecutor(pool)
 
 
 @contextlib.contextmanager
-def make_process_pool_executor() -> Iterator[Executor]:
+def make_process_pool_executor() -> Generator[Executor]:
     with concurrent.futures.ProcessPoolExecutor(max_workers=_num_cpus()) as pool:
         yield LocalPoolExecutor(pool)
 
 
 @pytest.fixture(scope="session")
-def executor(request: pytest.FixtureRequest) -> Iterator[Executor]:
-    factory = EXECUTOR_FACTORIES[request.param]
+def executor(request: pytest.FixtureRequest) -> Generator[Executor]:
+    executor_name = cast("str", request.param)  # set by `parametrize(..., indirect=True)`
+    factory = EXECUTOR_FACTORIES[executor_name]
     with factory() as executor:
         yield executor
 
