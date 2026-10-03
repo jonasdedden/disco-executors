@@ -8,7 +8,7 @@ explicit control over how results, exceptions, retries and back-pressure are sur
 ## Quick start
 
 ```python
-from disco.executors import mwrap, wrap
+from disco.executors import ResultConfig
 from disco.executors.local import LocalExecutor
 
 
@@ -18,22 +18,18 @@ def add(a: int, b: int, *, scale: int = 1) -> int:
 
 executor = LocalExecutor()
 
-# Single task — positional + keyword arguments both flow through `wrap`
-total = executor.submit(wrap(add, 2, 3, scale=10))
+# Single task — executor options first, then call with the function's own arguments
+total = executor.submit(add)(2, 3, scale=10)
 assert total == 50
 
-# Parallel map — first argument fans out, remaining positional/keyword args are shared
-sums = executor.map(mwrap(add, [1, 2, 3], 10, scale=2))
+# Parallel map — the first argument fans out, remaining positional/keyword args are shared
+sums = executor.map(add)([1, 2, 3], 10, scale=2)
 assert sums == [22, 24, 26]
 
 # Lazy map — yields as tasks complete
-for s in executor.map_lazy(mwrap(add, range(1_000_000), 10, scale=2)):
+for s in executor.map_lazy(add, ordered=False)(range(1_000_000), 10, scale=2):
     process(s)
 ```
-
-`wrap(func, *args, **kwargs)` and `mwrap(func, first_args, *args, **kwargs)`
-accept the same positional/keyword arguments you would pass to the function
-itself — the type checker enforces the signature.
 
 ---
 
@@ -41,28 +37,48 @@ itself — the type checker enforces the signature.
 
 ### `Executor`
 
-`Executor` is the abstract interface implemented by each backend. Three entry
-points:
+`Executor` is the abstract interface implemented by each backend. Each of its three
+entry points takes the function plus the executor's options, and returns a callable
+that takes the function's own arguments:
 
-| method       | input              | output                                                             |
-|--------------|--------------------|--------------------------------------------------------------------|
-| `submit()`   | one `SingleWrap`   | one result / future                                                |
-| `map()`      | one `MultipleWrap` | `Sequence` of results / futures (fully materialized before return) |
-| `map_lazy()` | one `MultipleWrap` | `Iterator` of results / futures (yields as tasks complete)         |
+| method                      | the returned callable takes           | and returns                                                        |
+|-----------------------------|---------------------------------------|--------------------------------------------------------------------|
+| `submit(func, **options)`   | `func`'s arguments                    | one result / future                                                |
+| `map(func, **options)`      | an iterable + `func`'s remaining args | `Sequence` of results / futures (fully materialized before return) |
+| `map_lazy(func, **options)` | an iterable + `func`'s remaining args | `Iterator` of results / futures (yields as tasks complete)         |
 
-### `wrap()` / `mwrap()` — typed argument carriers
-
-Python cannot combine `ParamSpec` `*args, **kwargs` with other keyword arguments
-on a method, so `disco-executors` wraps the user function + args into a dedicated
-object:
+### Two calls: options, then arguments
 
 ```python
-wrap(func, *args, **kwargs)  # for `submit`
-mwrap(func, first_args, *args, **kwargs)  # for `map` / `map_lazy` — first arg fans out
+executor.submit(func, result_config=..., retry_config=...)(*args, **kwargs)
+executor.map(func, result_config=..., max_pending_tasks=...)(first_args, *args, **kwargs)
 ```
 
-`mwrap`'s `first_args` is the iterable that fans out one task per element; all
-other `*args` / `**kwargs` are shared across tasks.
+Splitting the call keeps both sides fully typed. A function's `*args, **kwargs`
+can't share a signature with further keyword options, so the executor options
+(`result_config`, `exception_config`, `retry_config`, …) go to the first call and the
+function's arguments to the second. The type checker checks the second call against
+`func`'s real signature, keyword-only parameters included. If `func` has a parameter
+with the same name as an executor option, both are passed separately and typed
+separately:
+
+```python
+def g(x: int, *, result_config: str = "mine") -> float: ...
+
+executor.submit(g, result_config=ResultConfig.FUTURE_PENDING)(1, result_config="theirs")  # -> Future[float]
+```
+
+For `map` / `map_lazy`, the first argument of the returned callable is the iterable
+that fans out one task per element (into `func`'s first parameter); all other
+arguments are shared across tasks.
+
+Nothing runs until the returned callable is called, and it can be reused:
+
+```python
+square_all = executor.map(square, retry_config=3)
+first = square_all(batch_1)
+second = square_all(batch_2)
+```
 
 ---
 
@@ -200,9 +216,9 @@ resolves.
 from disco.executors import RetryConfig
 
 executor.map(
-    mwrap(flaky_api_call, urls),
+    flaky_api_call,
     retry_config=RetryConfig(retries=5, exceptions=[TimeoutError, ConnectionError]),
-)
+)(urls)
 ```
 
 ---
@@ -251,7 +267,7 @@ Per-call Ray-specific options go through `executor_kwargs`:
 
 ```python
 executor.map(
-    mwrap(my_task, inputs),
+    my_task,
     executor_kwargs={
         RayExecutor: RayKwargs(
             func_remote_kwargs={"num_cpus": 2, "memory": 512 * 1024 ** 2},
@@ -259,7 +275,7 @@ executor.map(
             wait_poll_interval=10.0,
         ),
     },
-)
+)(inputs)
 ```
 
 | `RayKwargs` field    | feeds into                                         |
@@ -283,7 +299,7 @@ a single machine without spawning a distributed execution cluster.
 ```python
 with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
     executor = LocalPoolExecutor(pool)
-    results = executor.map(mwrap(my_task, inputs))
+    results = executor.map(my_task)(inputs)
 ```
 
 ### `DaskExecutor`
@@ -304,7 +320,7 @@ client's lifecycle).
 ```python
 client = dask.distributed.Client(...)
 executor = DaskExecutor(client)
-results = executor.map(mwrap(my_task, inputs))
+results = executor.map(my_task)(inputs)
 ```
 
 Behavioural notes specific to Dask:

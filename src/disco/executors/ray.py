@@ -13,9 +13,6 @@ import ray.exceptions
 import ray.remote_function
 
 from .base import (
-    DEFAULT_EXCEPTION_CONFIG,
-    DEFAULT_MAX_PENDING_TASKS,
-    DEFAULT_RESULT_CONFIG,
     ExceptionConfig,
     Executor,
     Future,
@@ -252,43 +249,13 @@ class RayExecutor(Executor):
 
         return ray.remote(**options)(_wrap_with_exception_logging(func))  # type: ignore[return-value]
 
-    @overload
-    def submit[**P, R](
+    def _submit[**P, R](
         self,
         w: SingleWrap[P, R],
         *,
-        result_config: Literal[ResultConfig.RESULT] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> R: ...
-
-    @overload
-    def submit[**P, R](
-        self,
-        w: SingleWrap[P, R],
-        *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> RayFuture[R]: ...
-
-    @overload
-    def submit[**P, R](
-        self,
-        w: SingleWrap[P, R],
-        *,
-        result_config: ResultConfig = ...,
-        retry_config: int | RetryConfig | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> RayFuture[R] | R: ...
-
-    def submit[**P, R](
-        self,
-        w: SingleWrap[P, R],
-        *,
-        result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
-        retry_config: int | RetryConfig | None = None,
-        executor_kwargs: Mapping[type[Executor], Any] | None = None,
+        result_config: ResultConfig,
+        retry_config: int | RetryConfig | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> RayFuture[R] | R:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -318,99 +285,15 @@ class RayExecutor(Executor):
                     raise exc
                 return fut
 
-    @overload
-    def map[T, **P, R](
+    def _map[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
         *,
-        result_config: Literal[ResultConfig.RESULT] = ...,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[R]: ...
-
-    @overload
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: Literal[ResultConfig.RESULT] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[R | Exception]: ...
-
-    @overload
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[RayFuture[R]]: ...
-
-    @overload
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[RayFuture[R] | Exception]: ...
-
-    @overload
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = ...,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RAISE_GROUPED] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[RayFuture[R]] | Sequence[R]: ...
-
-    @overload
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[R | Exception] | Sequence[RayFuture[R] | Exception]: ...
-
-    @overload
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = ...,
-        exception_config: ExceptionConfig = ...,
-        retry_config: int | RetryConfig | None = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Sequence[RayFuture[R]] | Sequence[RayFuture[R] | Exception] | Sequence[R] | Sequence[R | Exception]: ...
-
-    def map[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
-        exception_config: ExceptionConfig = DEFAULT_EXCEPTION_CONFIG,
-        retry_config: int | RetryConfig | None = None,
-        max_pending_tasks: int | None = DEFAULT_MAX_PENDING_TASKS,
-        executor_kwargs: Mapping[type[Executor], Any] | None = None,
+        result_config: ResultConfig,
+        exception_config: ExceptionConfig,
+        retry_config: int | RetryConfig | None,
+        max_pending_tasks: int | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Sequence[RayFuture[R]] | Sequence[RayFuture[R] | Exception] | Sequence[R] | Sequence[R | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -546,94 +429,16 @@ class RayExecutor(Executor):
             case _:
                 raise AssertionError("FUTURE_PENDING is handled by the early return above")
 
-    @overload
-    def map_lazy[T, **P, R](
+    def _map_lazy[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
         *,
-        result_config: Literal[ResultConfig.RESULT] = ...,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        ordered: bool = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[R]: ...
-
-    @overload
-    def map_lazy[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: Literal[ResultConfig.RESULT] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        ordered: bool = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[R | Exception]: ...
-
-    @overload
-    def map_lazy[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        ordered: bool = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[RayFuture[R]]: ...
-
-    @overload
-    def map_lazy[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: Literal[ResultConfig.FUTURE_PENDING, ResultConfig.FUTURE_COMPLETED] = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        ordered: bool = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[RayFuture[R] | Exception]: ...
-
-    @overload
-    def map_lazy[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = ...,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        ordered: bool = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[RayFuture[R]] | Iterator[R]: ...
-
-    @overload
-    def map_lazy[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = ...,
-        exception_config: Literal[ExceptionConfig.RETURN] = ...,
-        retry_config: int | RetryConfig | None = ...,
-        ordered: bool = ...,
-        max_pending_tasks: int | None = ...,
-        executor_kwargs: Mapping[type[Executor], Any] | None = ...,
-    ) -> Iterator[R | Exception] | Iterator[RayFuture[R] | Exception]: ...
-
-    def map_lazy[T, **P, R](
-        self,
-        w: MultipleWrap[T, P, R],
-        *,
-        result_config: ResultConfig = DEFAULT_RESULT_CONFIG,
-        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RETURN] = DEFAULT_EXCEPTION_CONFIG,
-        retry_config: int | RetryConfig | None = None,
-        ordered: bool = True,
-        max_pending_tasks: int | None = DEFAULT_MAX_PENDING_TASKS,
-        executor_kwargs: Mapping[type[Executor], Any] | None = None,
+        result_config: ResultConfig,
+        exception_config: Literal[ExceptionConfig.RAISE_EAGERLY, ExceptionConfig.RETURN],
+        retry_config: int | RetryConfig | None,
+        ordered: bool,
+        max_pending_tasks: int | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):

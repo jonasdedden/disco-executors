@@ -52,6 +52,11 @@ def foo(bar: int, baz: int, biz: int = 5) -> int:
     return bar + baz + biz
 
 
+def foo_clashing(bar: int, baz: int = 0, *, result_config: str = "mine", flag: bool = False) -> str:
+    """Has its own keyword argument named like an executor option, plus a keyword-only one."""
+    return f"{bar + baz}:{result_config}:{flag}"
+
+
 class FailNTimesInput(NamedTuple):
     counter_callable: Callable[..., int]
     num: int
