@@ -1,3 +1,7 @@
+# Ray's / Dask's APIs are only partially annotated, so values derived from them are `Unknown` / `Any` to pyright.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportUnknownParameterType=false, reportUnknownLambdaType=false, reportAny=false
+
 from __future__ import annotations
 
 import functools
@@ -6,11 +10,10 @@ import os
 import socket
 from collections import deque
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, assert_never, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, assert_never, cast, overload, override
 
 import ray
 import ray.exceptions
-import ray.remote_function
 
 from .base import (
     ExceptionConfig,
@@ -105,6 +108,9 @@ class _SentinelRemoteFunction[R](Protocol):
 
 
 class RayFuture[R](Future[R]):
+    result_ref: ray.ObjectRef[R]
+    sentinel_ref: ray.ObjectRef[_RaySuccessSentinel]
+
     def __init__(
         self,
         result_ref: ray.ObjectRef[R],
@@ -113,15 +119,18 @@ class RayFuture[R](Future[R]):
         self.result_ref = result_ref
         self.sentinel_ref = sentinel_ref
 
+    @override
     def cancel(self) -> bool:
         # Both refs originate from the same underlying task (split via `num_returns=2`),
         # so cancelling either one cancels the task.
         ray.cancel(self.result_ref)
         return True
 
+    @override
     def result(self, timeout: float | None = None) -> R:
         return ray.get(self.result_ref, timeout=timeout)
 
+    @override
     def exception(self, timeout: float | None = None) -> Exception | None:
         try:
             sentinel = ray.get(self.sentinel_ref, timeout=timeout)
@@ -137,14 +146,14 @@ class RayFuture[R](Future[R]):
             return None
 
 
-EMPTY_DICT: Mapping[str, Any] = MappingProxyType({})
+EMPTY_DICT: Mapping[str, object] = MappingProxyType({})
 
 
 class RayKwargs(NamedTuple):
     # Additional `kwargs` for `remote_func = ray.remote([func], **kwargs)`
-    func_remote_kwargs: Mapping[str, Any] = EMPTY_DICT
+    func_remote_kwargs: Mapping[str, object] = EMPTY_DICT
     # Additional `kwargs` for `obj_refs = remote_func.options(**kwargs).remote([args])`
-    func_options_kwargs: Mapping[str, Any] = EMPTY_DICT
+    func_options_kwargs: Mapping[str, object] = EMPTY_DICT
     # Timeout for `results = ray.get(obj_refs, timeout=timeout)`
     get_timeout: float | None = None
     # Timeout for `done, pending = ray.wait(obj_refs, timeout=timeout)`
@@ -234,9 +243,11 @@ class RayExecutor(Executor):
     def _setup_func[**P, R](
         func: Callable[P, R],
         retries: int | RetryConfig | None = None,
-        func_options_args: Mapping[str, Any] | None = None,
+        func_options_args: Mapping[str, object] | None = None,
     ) -> _SentinelRemoteFunction[R]:
-        options: dict[str, Any] = {}
+        # Ray accepts more than its annotated `ray.remote(...)` signature declares (e.g. `name`, or `retry_exceptions` as a
+        # list), so these options are passed through untyped.
+        options: dict[str, Any] = {}  # pyright: ignore[reportExplicitAny]
 
         if retries:
             if isinstance(retries, RetryConfig):
@@ -260,15 +271,18 @@ class RayExecutor(Executor):
         if func_options_args:
             options |= func_options_args
 
-        return cast("_SentinelRemoteFunction[R]", ray.remote(**options)(_wrap_with_exception_logging(func)))
+        # Ray's annotations pick the remote-function type by the function's arity and can't express `num_returns=2`.
+        remote_func = cast("object", ray.remote(**options)(_wrap_with_exception_logging(func)))
+        return cast("_SentinelRemoteFunction[R]", remote_func)
 
+    @override
     def _submit[**P, R](
         self,
         w: SingleWrap[P, R],
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> RayFuture[R] | R:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -298,6 +312,7 @@ class RayExecutor(Executor):
                     raise exc
                 return fut
 
+    @override
     def _map[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
@@ -306,7 +321,7 @@ class RayExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Sequence[R | RayFuture[R] | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -440,8 +455,9 @@ class RayExecutor(Executor):
             case ResultConfig.FUTURE_COMPLETED:
                 return [exceptions_by_idx[i] if i in exceptions_by_idx else futures[i] for i in range(total_submitted)]
             case _:
-                raise AssertionError("FUTURE_PENDING is handled by the early return above")
+                assert_never(result_config)
 
+    @override
     def _map_lazy[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
@@ -451,7 +467,7 @@ class RayExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Iterator[R | RayFuture[R] | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
@@ -571,7 +587,7 @@ class RayExecutor(Executor):
                     wait_ref = sentinel_ref
                     future_by_idx[total_submitted] = RayFuture(result_ref=result_ref, sentinel_ref=sentinel_ref)
                 case _:
-                    raise AssertionError("FUTURE_PENDING is handled by the early return above")
+                    assert_never(result_config)
             ref_to_idx[wait_ref] = total_submitted
             pending.append(wait_ref)
             total_submitted += 1

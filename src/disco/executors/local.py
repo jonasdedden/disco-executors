@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Literal, NamedTuple, assert_never, override
 
 from .base import (
     ExceptionConfig,
@@ -55,9 +55,9 @@ _FUTURE_ALREADY_CANCELLED_MSG = "Future already cancelled!"
 
 class LocalFuture[R](Future[R]):
     def __init__[**P](self, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> None:
-        self.func = func
-        self.args = args
-        self.kwargs = kwargs
+        self.func = func  # pyright: ignore[reportUnannotatedClassAttribute] # `ParamSpec` args can't be annotated on a class
+        self.args = args  # pyright: ignore[reportUnannotatedClassAttribute] # `ParamSpec` args can't be annotated on a class
+        self.kwargs = kwargs  # pyright: ignore[reportUnannotatedClassAttribute] # `ParamSpec` args can't be annotated on a class
         self._result: _DoneWrapper[R] | _ErrorWrapper | _PendingSentinel | _CancelledSentinel = _PENDING
 
     @property
@@ -74,6 +74,7 @@ class LocalFuture[R](Future[R]):
             case _:
                 assert_never(self._result)
 
+    @override
     def cancel(self) -> bool:
         if self.status in (LocalFutureState.PENDING, LocalFutureState.CANCELLED):
             self._result = _CANCELLED
@@ -83,7 +84,8 @@ class LocalFuture[R](Future[R]):
     def reset(self) -> None:
         self._result = _PENDING
 
-    def _execute(self) -> _DoneWrapper[R] | _ErrorWrapper:
+    def execute(self) -> _DoneWrapper[R] | _ErrorWrapper:
+        """Run the function now (again, after `reset()`), and record and return its outcome."""
         try:
             res = self.func(*self.args, **self.kwargs)
         except Exception as exc:
@@ -92,6 +94,7 @@ class LocalFuture[R](Future[R]):
             self._result = _DoneWrapper(result=res)
         return self._result
 
+    @override
     def result(self, timeout: float | None = None) -> R:
         if self.status == LocalFutureState.CANCELLED:
             raise LocalFutureCancelledError(_FUTURE_ALREADY_CANCELLED_MSG)
@@ -102,15 +105,19 @@ class LocalFuture[R](Future[R]):
                 return res  # type: ignore[no-any-return]
             case _ErrorWrapper(exception=exc):
                 raise exc
+            case _PendingSentinel() | _CancelledSentinel():
+                pass  # Not run yet (cancellation is rejected above), so run it now.
 
-        match self._execute():
+        outcome = self.execute()
+        match outcome:
             case _DoneWrapper(result=res):
                 return res  # type: ignore[no-any-return]
             case _ErrorWrapper(exception=exc):
                 raise exc
             case _:
-                raise RuntimeError("unreachable")
+                assert_never(outcome)
 
+    @override
     def exception(self, timeout: float | None = None) -> Exception | None:
         if self.status == LocalFutureState.CANCELLED:
             raise LocalFutureCancelledError(_FUTURE_ALREADY_CANCELLED_MSG)
@@ -120,15 +127,19 @@ class LocalFuture[R](Future[R]):
                 return None
             case _ErrorWrapper(exception=exc):
                 return exc
+            case _PendingSentinel() | _CancelledSentinel():
+                pass  # Not run yet (cancellation is rejected above), so run it now.
 
-        match self._execute():
+        outcome = self.execute()
+        match outcome:
             case _DoneWrapper(result=_):
                 return None
             case _ErrorWrapper(exception=exc):
                 return exc
             case _:
-                raise RuntimeError("unreachable")
+                assert_never(outcome)
 
+    @override
     def __repr__(self) -> str:
         # Stolen from concurrent.futures._base.Future
         match self._result:
@@ -150,10 +161,11 @@ def _retry_local_future[R](
     num_retries: int
     if isinstance(retry_config, RetryConfig):
         num_retries = retry_config.retries
-    elif isinstance(retry_config, int):
+    elif isinstance(retry_config, int):  # pyright: ignore[reportUnnecessaryIsInstance] # user input, see below
         num_retries = retry_config
     else:
-        raise TypeError(f"`retry_config` must be an int or RetryConfig: {retry_config:?}")
+        # Unreachable for type-checked callers, but `retry_config` comes straight from the public API.
+        raise TypeError(f"`retry_config` must be an int or RetryConfig: {retry_config!r}")  # pyright: ignore[reportUnreachable]
 
     last_error: _ErrorWrapper | None = None
 
@@ -162,7 +174,7 @@ def _retry_local_future[R](
         num_retries -= 1
 
     for _ in range(num_retries + 1):
-        value: _DoneWrapper[R] | _ErrorWrapper = fut._execute()
+        value: _DoneWrapper[R] | _ErrorWrapper = fut.execute()
         match value:
             case _DoneWrapper(result=_):
                 match result_config:
@@ -189,13 +201,14 @@ class LocalExecutor(Executor):
     def __init__(self) -> None:
         pass
 
+    @override
     def _submit[**P, R](
         self,
         w: SingleWrap[P, R],
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Future[R] | R:
         if retry_config:
             fut = LocalFuture(w.func, *w.args, **w.kwargs)
@@ -217,9 +230,10 @@ class LocalExecutor(Executor):
                     return LocalFuture(w.func, *w.args, **w.kwargs)
                 case ResultConfig.FUTURE_COMPLETED:
                     fut = LocalFuture(w.func, *w.args, **w.kwargs)
-                    fut.result()
+                    _ = fut.result()  # Runs the task now and raises if it failed.
                     return fut
 
+    @override
     def _map[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
@@ -228,7 +242,7 @@ class LocalExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Sequence[R | Future[R] | Exception]:
         match exception_config:
             case ExceptionConfig.RAISE_EAGERLY:
@@ -268,8 +282,6 @@ class LocalExecutor(Executor):
                         return [future.result() for future in futures]
                     case ResultConfig.FUTURE_COMPLETED:
                         return futures
-                    case ResultConfig.FUTURE_PENDING:
-                        raise AssertionError("FUTURE_PENDING is rejected above for RAISE_GROUPED")
                     case _:
                         assert_never(result_config)
             case ExceptionConfig.RETURN:
@@ -293,6 +305,7 @@ class LocalExecutor(Executor):
             case _:
                 assert_never(exception_config)
 
+    @override
     def _map_lazy[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
@@ -302,7 +315,7 @@ class LocalExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Iterator[R | Future[R] | Exception]:
         # LocalExecutor is sequential, so ordered/max_pending_tasks have no effect.
         for arg in w.first_args:

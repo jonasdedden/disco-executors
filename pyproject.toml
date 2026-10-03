@@ -94,6 +94,14 @@ explicit_package_bases = true
 
 [tool.basedpyright]
 include = ["src", "tests"]
-# `mypy --strict` is the strict gate. Pyright's strict modes mostly flag Ray's/Dask's partially untyped APIs, so this
-# runs in pyright's standard mode, as a second checker with different inference.
-typeCheckingMode = "standard"
+typeCheckingMode = "recommended"
+failOnWarnings = true
+# Also honour mypy's `# type: ignore[...]` comments, so a single comment covers both checkers.
+enableTypeIgnoreComments = true
+# mypy's `warn_unused_ignores` (part of `--strict`) already polices those, and some are needed by mypy only.
+reportUnnecessaryTypeIgnoreComment = false
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+# Tests call things purely for their side effects or exceptions all the time.
+reportUnusedCallResult = false

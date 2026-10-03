@@ -52,6 +52,11 @@ def foo(bar: int, baz: int, biz: int = 5) -> int:
     return bar + baz + biz
 
 
+def foo_flagged(bar: int, *, ensure_deterministic: bool) -> tuple[int, bool]:
+    """Has a keyword argument named like one of `dask.base.tokenize`'s own options."""
+    return bar, ensure_deterministic
+
+
 def foo_clashing(bar: int, baz: int = 0, *, result_config: str = "mine", flag: bool = False) -> str:
     """Has its own keyword argument named like an executor option, plus a keyword-only one."""
     return f"{bar + baz}:{result_config}:{flag}"

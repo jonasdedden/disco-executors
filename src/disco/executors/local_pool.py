@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 from collections import deque
-from typing import TYPE_CHECKING, Any, Literal, assert_never
+from typing import TYPE_CHECKING, Literal, assert_never, override
 
 from .base import (
     ExceptionConfig,
@@ -27,15 +27,20 @@ class LocalPoolFuture[R](Future[R]):
     rather than silently handed back as values.
     """
 
+    _fut: concurrent.futures.Future[R]
+
     def __init__(self, fut: concurrent.futures.Future[R]) -> None:
         self._fut = fut
 
+    @override
     def cancel(self) -> bool:
         return self._fut.cancel()
 
+    @override
     def result(self, timeout: float | None = None) -> R:
         return self._fut.result(timeout=timeout)
 
+    @override
     def exception(self, timeout: float | None = None) -> Exception | None:
         exc = self._fut.exception(timeout=timeout)
         if exc is None or isinstance(exc, Exception):
@@ -50,7 +55,10 @@ class _RetryCallable[**P, R]:
     `ProcessPoolExecutor` requires anything it receives via `submit` to pass through `pickle`.
     """
 
-    __slots__ = ("_allowed_excs", "_func", "_num_retries")
+    __slots__: tuple[str, ...] = ("_allowed_excs", "_func", "_num_retries")
+    _func: Callable[P, R]
+    _num_retries: int
+    _allowed_excs: tuple[type[BaseException], ...]
 
     def __init__(
         self,
@@ -97,16 +105,19 @@ class LocalPoolExecutor(Executor):
     lifecycle — we don't shut it down.
     """
 
+    _pool: concurrent.futures.Executor
+
     def __init__(self, pool: concurrent.futures.Executor) -> None:
         self._pool = pool
 
+    @override
     def _submit[**P, R](
         self,
         w: SingleWrap[P, R],
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> LocalPoolFuture[R] | R:
         del executor_kwargs  # unused; the pool's configuration lives on the pool instance itself
         func = _prepare_func(w.func, retry_config)
@@ -122,6 +133,7 @@ class LocalPoolExecutor(Executor):
                     raise exc
                 return fut
 
+    @override
     def _map[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
@@ -130,7 +142,7 @@ class LocalPoolExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Sequence[R | LocalPoolFuture[R] | Exception]:
         del executor_kwargs
         func, first_args, args, kwargs = w.func, w.first_args, w.args, w.kwargs
@@ -156,7 +168,7 @@ class LocalPoolExecutor(Executor):
             return [LocalPoolFuture(f) for f in all_futures]
 
         # RESULT / FUTURE_COMPLETED: block on every task before shaping the output.
-        concurrent.futures.wait(all_futures, return_when=concurrent.futures.ALL_COMPLETED)
+        _ = concurrent.futures.wait(all_futures, return_when=concurrent.futures.ALL_COMPLETED)
 
         exceptions_by_idx: dict[int, Exception] = {}
         for idx, fut in enumerate(all_futures):
@@ -191,8 +203,9 @@ class LocalPoolExecutor(Executor):
                     for i in range(len(all_futures))
                 ]
             case _:
-                raise AssertionError("FUTURE_PENDING is handled by the early return above")
+                assert_never(result_config)
 
+    @override
     def _map_lazy[T, **P, R](
         self,
         w: MultipleWrap[T, P, R],
@@ -202,7 +215,7 @@ class LocalPoolExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], Any] | None,
+        executor_kwargs: Mapping[type[Executor], object] | None,
     ) -> Iterator[R | LocalPoolFuture[R] | Exception]:
         del executor_kwargs
         func, first_args, args, kwargs = w.func, w.first_args, w.args, w.kwargs
@@ -262,8 +275,6 @@ class LocalPoolExecutor(Executor):
                             resolved = cf_future.result()
                         case ResultConfig.FUTURE_COMPLETED:
                             resolved = LocalPoolFuture(cf_future)
-                        case ResultConfig.FUTURE_PENDING:
-                            raise AssertionError("FUTURE_PENDING never reaches _resolve")
                         case _:
                             assert_never(result_config)
                 if ordered:
