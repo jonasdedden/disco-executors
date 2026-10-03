@@ -10,7 +10,7 @@ import os
 import socket
 from collections import deque
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, assert_never, cast, overload, override
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, assert_never, overload, override
 
 import ray
 import ray.exceptions
@@ -94,15 +94,25 @@ class _RaySuccessSentinel:
 _RAY_SUCCESS = _RaySuccessSentinel()
 
 
-class _SentinelRemoteFunction[R](Protocol):
-    """The remote function built by `RayExecutor._setup_func`.
+class _SentinelRemoteFunction[R]:
+    """Typed handle on the remote function built by `RayExecutor._setup_func`.
 
-    Its `num_returns=2` makes `.remote(...)` return `[sentinel_ref, result_ref]`. Ray leaves `.remote` unannotated, so
-    this spells out the shape; it's typed as a tuple so that unpacking keeps both element types.
+    Its `num_returns=2` makes `.remote(...)` return `[sentinel_ref, result_ref]`, which Ray's annotations can't express
+    (they pick the remote-function type by the function's arity), so the Ray object is held as `Any`.
     """
 
-    def options(self, **task_options: Any) -> _SentinelRemoteFunction[R]: ...
-    def remote(self, *args: Any, **kwargs: Any) -> tuple[ray.ObjectRef[_RaySuccessSentinel], ray.ObjectRef[R]]: ...
+    __slots__: tuple[str, ...] = ("_remote_func",)
+    _remote_func: Any
+
+    def __init__(self, remote_func: Any) -> None:
+        self._remote_func = remote_func
+
+    def options(self, **task_options: Any) -> _SentinelRemoteFunction[R]:
+        return _SentinelRemoteFunction(self._remote_func.options(**task_options))
+
+    def remote(self, *args: Any, **kwargs: Any) -> tuple[ray.ObjectRef[_RaySuccessSentinel], ray.ObjectRef[R]]:
+        sentinel_ref, result_ref = self._remote_func.remote(*args, **kwargs)
+        return sentinel_ref, result_ref
 
 
 class RayFuture[R](Future[R]):
@@ -267,9 +277,7 @@ class RayExecutor(Executor):
         if func_options_args:
             options |= func_options_args
 
-        # Ray's annotations pick the remote-function type by the function's arity and can't express `num_returns=2`.
-        remote_func = cast("Any", ray.remote(**options)(_wrap_with_exception_logging(func)))
-        return cast("_SentinelRemoteFunction[R]", remote_func)
+        return _SentinelRemoteFunction(ray.remote(**options)(_wrap_with_exception_logging(func)))
 
     @override
     def _submit[**P, R](
