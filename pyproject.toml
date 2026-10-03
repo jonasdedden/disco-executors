@@ -61,18 +61,19 @@ ignore = [
     "ERA001", # commented out code
     "S101", # use of `assert`
     "ARG002", # unused args
-    "C901", # too complex
-    "PLR0913", # too-many-arguments
-    "PLR0912", # too-many-branches
-    "PLR0915", # too-many-statements
     "SLF001", # private member accessed
     "RUF023", # sorted `__slots__`
     "ANN401", # `Any` is used deliberately in this codebase
+    "CPY001", # missing copyright notice
+    # Size / complexity / "looks nicer" heuristics: lint for real issues, not aesthetics
+    "C901", # too complex
+    "PLR09", # too many arguments, positional arguments, branches, statements, returns, locals, ...
+    "PLR1702", # too many nested blocks
+    "PLR2004", # magic values
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**.py" = [
-    "PLR2004", # Magic values
     "PLW0127", # Self-assignment
     "FBT001", # Positional boolean
     "FBT003", # Positional boolean

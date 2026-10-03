@@ -67,6 +67,7 @@ separately:
 ```python
 def g(x: int, *, result_config: str = "mine") -> float: ...
 
+
 executor.submit(g, result_config=ResultConfig.FUTURE_PENDING)(1, result_config="theirs")  # -> Future[float]
 ```
 
@@ -272,7 +273,7 @@ executor.map(
     my_task,
     executor_kwargs={
         RayExecutor: RayKwargs(
-            func_remote_kwargs={"num_cpus": 2, "memory": 512 * 1024 ** 2},
+            func_remote_kwargs={"num_cpus": 2, "memory": 512 * 1024**2},
             get_timeout=30.0,
             wait_poll_interval=10.0,
         ),

@@ -53,6 +53,17 @@ def _generate_key(func_name: str, base_hash: str, arg: Any, idx: int) -> str:
     return f"{func_name[:50]}-{base_hash[:8]}-{_format_value(arg)}-{dask.base.tokenize(arg)[:8]}-{idx}"
 
 
+def _task_exception[R](fut: dask.distributed.Future[R], timeout: float | None = None) -> Exception | None:
+    """The exception `fut`'s task failed with, or `None`. `BaseException`s (`KeyboardInterrupt`, ...) are re-raised."""
+    exc = fut.exception(timeout=timeout)  # type: ignore[no-untyped-call]
+    if exc is None or isinstance(exc, Exception):
+        return exc
+    if isinstance(exc, BaseException):
+        raise exc
+    # Only clients in asynchronous mode return a coroutine here, and this executor doesn't use those.
+    raise TypeError(f"Expected an exception or `None` from `Future.exception()`, got {exc!r}")
+
+
 class DaskFuture[R](Future[R]):
     """Wrapper around `dask.distributed.Future` matching the `Future` protocol.
 
@@ -84,10 +95,7 @@ class DaskFuture[R](Future[R]):
 
     @override
     def exception(self, timeout: float | None = None) -> Exception | None:
-        exc = self._fut.exception(timeout=timeout)  # type: ignore[no-untyped-call]
-        if exc is None or isinstance(exc, Exception):
-            return exc
-        raise exc
+        return _task_exception(self._fut, timeout)
 
 
 class _RetryCallable[**P, R]:
@@ -265,10 +273,8 @@ class DaskExecutor(Executor):
             """
             assert isinstance(fut.key, str)  # we only submit futures with string keys
             idx = key_to_idx[fut.key]
-            exc = fut.exception()  # type: ignore[no-untyped-call]
+            exc = _task_exception(fut)
             if exc is not None:
-                if not isinstance(exc, Exception):
-                    raise exc  # BaseException — always propagate
                 match exception_config:
                     case ExceptionConfig.RAISE_EAGERLY:
                         raise exc
@@ -367,10 +373,8 @@ class DaskExecutor(Executor):
 
         def _resolve(fut: dask.distributed.Future[R]) -> R | DaskFuture[R] | Exception:
             """Turn one completed future into the item we want to yield."""
-            exc = fut.exception()  # type: ignore[no-untyped-call]
+            exc = _task_exception(fut)
             if exc is not None:
-                if not isinstance(exc, Exception):
-                    raise exc  # BaseException — always propagate
                 match exception_config:
                     case ExceptionConfig.RAISE_EAGERLY:
                         raise exc
