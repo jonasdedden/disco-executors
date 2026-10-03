@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       - name: Lockfile is up to date
         run: uv lock --check
       # `--no-fix` matters: the ruff config sets `fix = true`, which would otherwise fix the code and pass.
@@ -44,7 +44,7 @@ jobs:
         python: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --all-extras
@@ -81,7 +81,7 @@ jobs:
       KUBERNETES_CPU_REQUEST: "4"
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --all-extras
@@ -97,7 +97,7 @@ jobs:
         with:
           # `uv-dynamic-versioning` derives the version from git tags and history.
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       - run: uv build
       - name: Check package metadata
         run: uvx twine check --strict dist/*
