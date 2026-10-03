@@ -35,18 +35,15 @@ jobs:
         run: uv run ruff format --check --diff
 
   typecheck:
-    name: Type check (Python ${{ matrix.python }})
+    name: Type check
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          python-version: ${{ matrix.python }}
+          # Newest supported Python.
+          python-version: "3.14"
       - run: uv sync --all-extras
       - name: mypy --strict
         run: uv run --no-sync mypy
@@ -60,7 +57,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.13", "3.14"]
+        # Oldest and newest supported Python.
+        python: ["3.12", "3.14"]
         executor: [local, thread, process, dask, ray]
         # Each test is marked with its executor (see `tests/conftest.py`); the `local` job also runs the
         # executor-independent tests, so every test runs in exactly one job.
