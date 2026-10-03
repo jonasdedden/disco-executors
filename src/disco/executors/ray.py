@@ -6,7 +6,7 @@ import os
 import socket
 from collections import deque
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, assert_never, overload
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, assert_never, cast, overload
 
 import ray
 import ray.exceptions
@@ -32,7 +32,7 @@ def _get_object_refs[T](
     *,
     raise_eagerly: Literal[True],
     timeout: float | None = ...,
-) -> list[T]: ...
+) -> Sequence[T]: ...
 
 
 @overload
@@ -41,7 +41,7 @@ def _get_object_refs[T](
     *,
     raise_eagerly: bool = ...,
     timeout: float | None = ...,
-) -> list[T | Exception]: ...
+) -> Sequence[T | Exception]: ...
 
 
 def _get_object_refs[T](
@@ -49,7 +49,7 @@ def _get_object_refs[T](
     *,
     raise_eagerly: bool = False,
     timeout: float | None = None,
-) -> list[T] | list[T | Exception]:
+) -> Sequence[T] | Sequence[T | Exception]:
     """Resolve `object_refs` and return values in the same order as the input.
 
     In Ray Client mode, a batched `ray.get([...])` is translated to a single gRPC
@@ -89,6 +89,19 @@ class _RaySuccessSentinel:
 
 
 _RAY_SUCCESS = _RaySuccessSentinel()
+
+
+class _SentinelRemoteFunction[R](Protocol):
+    """The remote function built by `RayExecutor._setup_func`.
+
+    Its `num_returns=2` makes `.remote(...)` return `[sentinel_ref, result_ref]`. Ray leaves `.remote` unannotated, so
+    this spells out the shape; it's typed as a tuple so that unpacking keeps both element types.
+    """
+
+    def options(self, **task_options: object) -> _SentinelRemoteFunction[R]: ...
+    def remote(
+        self, *args: object, **kwargs: object
+    ) -> tuple[ray.ObjectRef[_RaySuccessSentinel], ray.ObjectRef[R]]: ...
 
 
 class RayFuture[R](Future[R]):
@@ -222,7 +235,7 @@ class RayExecutor(Executor):
         func: Callable[P, R],
         retries: int | RetryConfig | None = None,
         func_options_args: Mapping[str, Any] | None = None,
-    ) -> ray.remote_function.RemoteFunction:
+    ) -> _SentinelRemoteFunction[R]:
         options: dict[str, Any] = {}
 
         if retries:
@@ -247,7 +260,7 @@ class RayExecutor(Executor):
         if func_options_args:
             options |= func_options_args
 
-        return ray.remote(**options)(_wrap_with_exception_logging(func))  # type: ignore[return-value]
+        return cast("_SentinelRemoteFunction[R]", ray.remote(**options)(_wrap_with_exception_logging(func)))
 
     def _submit[**P, R](
         self,
@@ -275,7 +288,7 @@ class RayExecutor(Executor):
 
         match result_config:
             case ResultConfig.RESULT:
-                return ray.get(result_ref, timeout=ray_executor_kwargs.get_timeout)  # type: ignore[no-any-return]
+                return ray.get(result_ref, timeout=ray_executor_kwargs.get_timeout)
             case ResultConfig.FUTURE_PENDING:
                 return RayFuture(result_ref=result_ref, sentinel_ref=sentinel_ref)
             case ResultConfig.FUTURE_COMPLETED:
@@ -294,7 +307,7 @@ class RayExecutor(Executor):
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Sequence[RayFuture[R]] | Sequence[RayFuture[R] | Exception] | Sequence[R] | Sequence[R | Exception]:
+    ) -> Sequence[R | RayFuture[R] | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
             raise TypeError(f"`submission_args` must be RayKwargs, got {ray_executor_kwargs!r}")
@@ -352,8 +365,8 @@ class RayExecutor(Executor):
             # single `T`. At runtime the list is monomorphic (all result refs under RESULT, all
             # sentinels under FUTURE_COMPLETED), so the call is safe; the value-type isinstance
             # checks below pick up whichever element type was actually returned.
-            batch_results: list[R | _RaySuccessSentinel | Exception] = _get_object_refs(
-                completed,  # type: ignore[misc]
+            batch_results: Sequence[R | _RaySuccessSentinel | Exception] = _get_object_refs(
+                completed,  # type: ignore[arg-type]
                 raise_eagerly=(exception_config == ExceptionConfig.RAISE_EAGERLY),
                 timeout=ray_executor_kwargs.get_timeout,
             )
@@ -439,7 +452,7 @@ class RayExecutor(Executor):
         ordered: bool,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Iterator[Future[R]] | Iterator[Future[R] | Exception] | Iterator[R] | Iterator[R | Exception]:
+    ) -> Iterator[R | RayFuture[R] | Exception]:
         ray_executor_kwargs = (executor_kwargs or {}).get(type(self), RayKwargs())
         if not isinstance(ray_executor_kwargs, RayKwargs):
             raise TypeError(f"`submission_args` must be RayKwargs, got {ray_executor_kwargs!r}")
@@ -517,8 +530,8 @@ class RayExecutor(Executor):
             `_get_object_refs`'s single `T`; the call is safe because the list is homogeneous
             at runtime.
             """
-            batch_results: list[R | _RaySuccessSentinel | Exception] = _get_object_refs(
-                completed,  # type: ignore[misc]
+            batch_results: Sequence[R | _RaySuccessSentinel | Exception] = _get_object_refs(
+                completed,  # type: ignore[arg-type]
                 raise_eagerly=(exception_config == ExceptionConfig.RAISE_EAGERLY),
                 timeout=ray_executor_kwargs.get_timeout,
             )

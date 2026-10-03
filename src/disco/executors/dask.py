@@ -213,7 +213,7 @@ class DaskExecutor(Executor):
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Sequence[DaskFuture[R]] | Sequence[DaskFuture[R] | Exception] | Sequence[R] | Sequence[R | Exception]:
+    ) -> Sequence[R | DaskFuture[R] | Exception]:
         del executor_kwargs
         original_func = w.func
         first_args: list[Any] = list(w.first_args)
@@ -316,7 +316,7 @@ class DaskExecutor(Executor):
         ordered: bool,
         max_pending_tasks: int | None,
         executor_kwargs: Mapping[type[Executor], Any] | None,
-    ) -> Iterator[Future[R] | Exception] | Iterator[Future[R]] | Iterator[R] | Iterator[R | Exception]:
+    ) -> Iterator[R | DaskFuture[R] | Exception]:
         del executor_kwargs
         original_func = w.func
         first_args: list[Any] = list(w.first_args)
