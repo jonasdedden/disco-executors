@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import TYPE_CHECKING, Literal, NamedTuple, assert_never, override
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, assert_never, override
 
 from .base import (
     ExceptionConfig,
@@ -208,7 +208,7 @@ class LocalExecutor(Executor):
         *,
         result_config: ResultConfig,
         retry_config: int | RetryConfig | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Future[R] | R:
         if retry_config:
             fut = LocalFuture(w.func, *w.args, **w.kwargs)
@@ -242,7 +242,7 @@ class LocalExecutor(Executor):
         exception_config: ExceptionConfig,
         retry_config: int | RetryConfig | None,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Sequence[R | Future[R] | Exception]:
         match exception_config:
             case ExceptionConfig.RAISE_EAGERLY:
@@ -315,7 +315,7 @@ class LocalExecutor(Executor):
         retry_config: int | RetryConfig | None,
         ordered: bool,
         max_pending_tasks: int | None,
-        executor_kwargs: Mapping[type[Executor], object] | None,
+        executor_kwargs: Mapping[type[Executor], Any] | None,
     ) -> Iterator[R | Future[R] | Exception]:
         # LocalExecutor is sequential, so ordered/max_pending_tasks have no effect.
         for arg in w.first_args:

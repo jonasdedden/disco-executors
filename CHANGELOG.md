@@ -16,8 +16,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   `executor.map(mwrap(func, items, *args, **kwargs), retry_config=3)`. Both calls are fully typed, and the function's
   keywords can no longer clash with executor options.
 - Backends implement the private hooks `_submit` / `_map` / `_map_lazy`; the public overloads live once on `Executor`.
-- `executor_kwargs` is typed `Mapping[type[Executor], object]` instead of `Mapping[type[Executor], Any]`; each backend
-  narrows its own entry. Likewise, `RayKwargs`' option mappings take `object` values.
 
 ### Added
 

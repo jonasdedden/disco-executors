@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Any, assert_never
 
 import pytest
 from hypothesis import given, settings
@@ -290,7 +290,7 @@ class TestExecutors:
         ) -> None:
             fail_inputs = [inp for inp in expected_exception_input if inp.should_fail]
 
-            test_harness: AbstractContextManager[object]
+            test_harness: AbstractContextManager[Any]
             match exception_config:
                 case ExceptionConfig.RAISE_EAGERLY:
                     test_harness = pytest.raises(CustomError, match=CUSTOM_ERROR_MSG)
@@ -428,7 +428,7 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
 
-            test_harness: AbstractContextManager[object]
+            test_harness: AbstractContextManager[Any]
             match exception_config:
                 case ExceptionConfig.RAISE_EAGERLY:
                     test_harness = pytest.raises(
@@ -530,7 +530,7 @@ class TestExecutors:
         ) -> None:
             inputs = [FailNTimesInput(counter_callable=atomic_counter_factory(), num=num) for num in nums]
 
-            test_harness: AbstractContextManager[object]
+            test_harness: AbstractContextManager[Any]
             match exception_config:
                 case ExceptionConfig.RAISE_EAGERLY:
                     test_harness = pytest.raises(
@@ -736,7 +736,7 @@ class TestExecutors:
                 failure_msgs: list[str] = []
                 for item in it:
                     if isinstance(item, CustomError):
-                        failure_msgs.append(str(item))
+                        failure_msgs.append(item.args[0])
                     elif isinstance(item, Future):
                         success_values.append(item.result())
                     else:

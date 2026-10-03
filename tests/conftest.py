@@ -4,7 +4,7 @@ import concurrent.futures
 import contextlib
 import os
 from functools import partial
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final
 from uuid import uuid4
 
 import dask.distributed
@@ -92,8 +92,7 @@ def make_process_pool_executor() -> Generator[Executor]:
 
 @pytest.fixture(scope="session")
 def executor(request: pytest.FixtureRequest) -> Generator[Executor]:
-    executor_name = cast("str", request.param)  # set by `parametrize(..., indirect=True)`
-    factory = EXECUTOR_FACTORIES[executor_name]
+    factory = EXECUTOR_FACTORIES[request.param]
     with factory() as executor:
         yield executor
 
